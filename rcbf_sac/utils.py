@@ -161,3 +161,58 @@ def get_wrapped_policy(agent, cbf_wrapper, dynamics_model, compensator=None, war
         return action + action_comp + action_safe
 
     return wrapped_policy
+
+def sort_vertices_cclockwise(vertices):
+    """ Function used to sort vertices of 2D convex polygon in counter clockwise direction.
+
+    Parameters
+    ----------
+    vertices : numpy.ndarray
+            Array of size (n_v, 2) where n_v is the number of vertices and d is the dimension of the space
+
+    Returns
+    -------
+    sorted_vertices : numpy.ndarray
+            Array of size (n_v, 2) of the vertices sorted in counter-clockwise direction.
+    """
+
+    assert(vertices.shape[1] == 2, "Vertices must each have dimension 2, got {}".format(vertices.shape[1]))
+
+    # Sort vertices
+    polygon_center = vertices.sum(axis=0, keepdims=True) / vertices.shape[0]  # (1, d)
+    rel_vecs = vertices - polygon_center
+    thetas = np.arctan2(rel_vecs[:, 1], rel_vecs[:, 0])
+    idxs = np.argsort(thetas)
+    return vertices[idxs, :]
+
+def get_polygon_normals(vertices):
+    """
+
+    Parameters
+    ----------
+    vertices : numpy.ndarray
+            Array of size (n_v, 2) where n_v is the number of 2D vertices.
+    Returns
+    -------
+    normals : numpy.ndarray
+            Array of size (n_v, 2) where each row i is the 2D normal vector of the line from vertices_sorted[i] - vertices_sorted[i+1]
+
+    centers : numpy.ndarary
+           Array of size (n_v, 2) where each row i is the 2D center point of the segment from vertices_sorted[i] to vertices_sorted[i+1]
+    """
+
+    print(vertices)
+    sorted_vertices = sort_vertices_cclockwise(vertices)  # (n_v, 2)
+    print(sorted_vertices)
+    diffs = np.diff(sorted_vertices, axis=0, append=sorted_vertices[[0]])  # (n_v, 2) at row i contains vector from v_i to v_i+1
+
+    # Compute Normals (rotate each diff by -90 degrees)
+    diffs = np.diff(sorted_vertices, axis=0, append=sorted_vertices[[0]])  # (n_v, 2) at row i contains vector from v_i to v_i+1
+    normals = np.array([diffs[:, 1], -diffs[:, 0]]).transpose()
+    normals = normals / np.linalg.norm(normals)
+    # Compute Centers
+    centers = (diffs + 2*vertices) / 2.0
+    print(centers.shape)
+    return normals, centers
+
+

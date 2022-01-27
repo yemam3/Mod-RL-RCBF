@@ -12,7 +12,6 @@ from build_env import *
 import os
 
 from rcbf_sac.utils import prGreen, get_output_folder, prYellow
-from rcbf_sac.evaluator import Evaluator
 
 
 def train(agent, env, dynamics_model, args, experiment=None):
@@ -123,27 +122,66 @@ def train(agent, env, dynamics_model, args, experiment=None):
             print("----------------------------------------")
 
 
-def test(agent, env, dynamics_model, evaluate, model_path, safe_action=False, visualize=True, debug=False):
+def test(agent, dynamics_model, args, visualize=True, debug=True):
 
+    model_path = args.resume
+    safe_action = args.use_cbf
     agent.load_weights(model_path)
     dynamics_model.load_disturbance_models(model_path)
 
     def policy(observation):
         return agent.select_action(observation, dynamics_model, safe_action=safe_action, evaluate=True)
 
-    validate_reward = evaluate(env, policy, dynamics_model=dynamics_model, debug=debug, visualize=visualize, save=False)
-    if debug: prYellow('[Evaluate]: mean_reward:{}'.format(validate_reward))
-
     if visualize and 'Unicycle' in model_path:
         from plot_utils import plot_value_function
-        plot_value_function(env, agent, dynamics_model, safe_action=safe_action)
+        plot_value_function(build_env(args.env_name), agent, dynamics_model, save_path=model_path, safe_action=False)
+
+    result = []
+
+    for episode in range(args.validate_episodes):
+
+        env = build_env(args.env_name, obs_config=args.obs_config)
+        agent.cbf_layer.env = env
+
+        # reset at the start of episode
+        observation = env.reset()
+        episode_steps = 0
+        episode_reward = 0.
+
+        assert observation is not None
+
+        # start episode
+        done = False
+        while not done:
+            # basic operation, action ,reward, blablabla ...
+            action = policy(observation)
+
+            if visualize:
+                env.render(mode='human')
+
+            observation, reward, done, info = env.step(action)
+
+            # update
+            episode_reward += reward
+            episode_steps += 1
+
+        result.append(episode_reward)
+        if debug: prYellow('[Evaluate] #Episode{}: episode_reward:{}, mean_reward:{}'.format(episode, episode_reward, np.mean(result)))
+
+        env.close()
+
+    if debug:
+        prYellow('[Evaluate]: mean_reward:{}'.format(np.mean(result)))
+
+    return np.mean(result)
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='PyTorch Soft Actor-Critic Args')
     # Environment Args
-    parser.add_argument('--env-name', default="SimulatedCars", help='Options are Unicycle or SimulatedCars.')
+    parser.add_argument('--env_name', default="Unicycle", help='Options are Unicycle or SimulatedCars.')
+    parser.add_argument('--obs_config', default="default", help='How to generate obstacles for Unicycle env.')
     # Comet ML
     parser.add_argument('--log_comet', action='store_true', dest='log_comet', help="Whether to log data")
     parser.add_argument('--comet_key', default='', help='Comet API key')
@@ -191,10 +229,10 @@ if __name__ == "__main__":
     parser.add_argument('--validate_episodes', default=5, type=int, help='how many episode to perform during validate experiment')
     parser.add_argument('--validate_steps', default=1000, type=int, help='how many steps to perform a validate experiment')
     # CBF, Dynamics, Env Args
-    parser.add_argument('--gp_model_size', default=3000, type=int, help='gp')
+    parser.add_argument('--gp_model_size', default=1000, type=int, help='gp')
     parser.add_argument('--gp_max_episodes', default=100, type=int, help='gp max train episodes.')
     parser.add_argument('--k_d', default=3.0, type=float)
-    parser.add_argument('--gamma_b', default=20, type=float)
+    parser.add_argument('--gamma_b', default=50, type=float)
     parser.add_argument('--l_p', default=0.03, type=float,
                         help="Look-ahead distance for unicycle dynamics output.")
     # Modular Task Learning
@@ -210,7 +248,7 @@ if __name__ == "__main__":
         torch.cuda.set_device(args.device_num)
 
     # Environment
-    env = build_env(args)
+    env = build_env(args.env_name, args.obs_config)
 
     # Agent
     agent = RCBF_SAC(env.observation_space.shape[0], env.action_space, env, args)
@@ -247,8 +285,7 @@ if __name__ == "__main__":
             experiment = None
         train(agent, env, dynamics_model, args, experiment)
     elif args.mode == 'test':
-        evaluate = Evaluator(args.validate_episodes, args.validate_steps, args.resume)
-        test(agent, env, dynamics_model, evaluate, args.resume, safe_action=args.use_cbf, visualize=args.visualize, debug=True)
+        test(agent, dynamics_model, args, visualize=args.visualize, debug=True)
 
-    env.close()
+    # env.close()
 

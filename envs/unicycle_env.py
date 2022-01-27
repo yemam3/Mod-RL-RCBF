@@ -2,13 +2,14 @@ import numpy as np
 import gym
 from gym import spaces
 from envs.utils import to_pixel
+from rcbf_sac.utils import get_polygon_normals
 
 class UnicycleEnv(gym.Env):
     """Custom Environment that follows SafetyGym interface"""
 
     metadata = {'render.modes': ['human']}
 
-    def __init__(self):
+    def __init__(self, obs_config='default'):
 
         super(UnicycleEnv, self).__init__()
 
@@ -20,8 +21,7 @@ class UnicycleEnv(gym.Env):
         self.safe_action_space = spaces.Box(low=-2.5, high=2.5, shape=(2,))
         self.observation_space = spaces.Box(low=-1e10, high=1e10, shape=(7,))
         self.bds = np.array([[-3., -3.], [3., 3.]])
-        self.hazards_radius = 0.6
-        self.hazards_locations = np.array([[0., 0.], [-1., 1.], [-1., -1.], [1., -1.], [1., 1.]]) * 1.5
+
         self.dt = 0.02
         self.max_episode_steps = 1000
         self.reward_goal = 1.0
@@ -29,6 +29,7 @@ class UnicycleEnv(gym.Env):
         # Initialize Env
         self.state = None
         self.episode_step = 0
+        self.initial_state = np.array([-2.5, -2.5, 0.0])
         self.goal_pos = np.array([2.5, 2.5])
 
         self.reset()
@@ -37,6 +38,27 @@ class UnicycleEnv(gym.Env):
         # Disturbance
         self.disturb_mean = np.zeros((3,))
         self.disturb_covar = np.diag([0.005, 0.005, 0.05]) * 20
+
+        # Build Hazards
+        self.hazards = []
+        if obs_config == 'default':  # default
+            self.hazards.append({'type': 'circle', 'radius': 0.6, 'location': 1.5*np.array([0., 0.])})
+            self.hazards.append({'type': 'circle', 'radius': 0.6, 'location': 1.5*np.array([-1., 1.])})
+            self.hazards.append({'type': 'circle', 'radius': 0.6, 'location': 1.5*np.array([-1., -1.])})
+            self.hazards.append({'type': 'circle', 'radius': 0.6, 'location': 1.5*np.array([1., -1.])})
+            self.hazards.append({'type': 'circle', 'radius': 0.6, 'location': 1.5*np.array([1., 1.])})
+        elif obs_config == 'test':
+            # self.build_hazards(obs_config)
+            self.hazards.append({'type': 'polygon', 'vertices': 0.6*np.array([[-1., -1.], [1., -1], [1., 1.], [-1., 1.]])})
+            self.hazards[-1]['vertices'][:, 0] += 0.5
+            self.hazards[-1]['vertices'][:, 1] -= 0.5
+            self.hazards.append({'type': 'circle', 'radius': 0.6, 'location': 1.5*np.array([1., 1.])})
+            self.hazards.append(
+                {'type': 'polygon', 'vertices': np.array([[0.9, 0.9], [2.1, 2.1], [2.1, 0.9]])})
+        else:
+            n_hazards = 6
+            hazard_radius = 0.6
+            self.get_random_hazard_locations(n_hazards, hazard_radius)
 
         # Viewer
         self.viewer = None
@@ -101,11 +123,11 @@ class UnicycleEnv(gym.Env):
             done = self.episode_step >= self.max_episode_steps
 
         # Include constraint cost in reward
-        if np.any(np.sum((self.state[:2] - self.hazards_locations)**2, axis=1) < self.hazards_radius**2):
-            if 'cost' in info:
-                info['cost'] += 0.1
-            else:
-                info['cost'] = 0.1
+        # if np.any(np.sum((self.state[:2] - self.hazards_locations)**2, axis=1) < self.hazards_radius**2):
+        #     if 'cost' in info:
+        #         info['cost'] += 0.1
+        #     else:
+        #         info['cost'] = 0.1
         return self.state, reward, done, info
 
     def goal_met(self):
@@ -132,12 +154,11 @@ class UnicycleEnv(gym.Env):
         self.episode_step = 0
 
         # Re-initialize state
-        self.state = np.array([-2.5, -2.5, 0.0])
+        self.state = np.copy(self.initial_state)
 
         # Re-initialize last goal dist
         self.last_goal_dist = self._goal_dist()
 
-        # TODO: Randomize this
         return self.get_obs()
 
     def render(self, mode='human', close=False):
@@ -163,14 +184,18 @@ class UnicycleEnv(gym.Env):
 
         if self.viewer is None:
             from envs import pyglet_rendering
+
             self.viewer = pyglet_rendering.Viewer(screen_width, screen_height)
             # Draw obstacles
             obstacles = []
-            for i in range(len(self.hazards_locations)):
-                obstacles.append(pyglet_rendering.make_circle(radius=to_pixel(self.hazards_radius, shift=0), filled=True))
-                obs_trans = pyglet_rendering.Transform(translation=(to_pixel(self.hazards_locations[i][0], shift=screen_width/2), to_pixel(self.hazards_locations[i][1], shift=screen_height/2)))
-                obstacles[i].set_color(1.0, 0.0, 0.0)
-                obstacles[i].add_attr(obs_trans)
+            for i in range(len(self.hazards)):
+                if self.hazards[i]['type'] == 'circle':
+                    obstacles.append(pyglet_rendering.make_circle(radius=to_pixel(self.hazards[i]['radius'], shift=0), filled=True))
+                    obs_trans = pyglet_rendering.Transform(translation=(to_pixel(self.hazards[i]['location'][0], shift=screen_width/2), to_pixel(self.hazards[i]['location'][1], shift=screen_height/2)))
+                    obstacles[i].set_color(1.0, 0.0, 0.0)
+                    obstacles[i].add_attr(obs_trans)
+                elif self.hazards[i]['type'] == 'polygon':
+                    obstacles.append(pyglet_rendering.make_polygon(to_pixel(self.hazards[i]['vertices'], shift=[screen_width/2, screen_height/2]), filled=True))
                 self.viewer.add_geom(obstacles[i])
 
             # Make Goal
@@ -273,46 +298,60 @@ class UnicycleEnv(gym.Env):
             self.viewer.close()
             self.viewer = None
 
-def get_random_hazard_locations(n_hazards, hazard_radius, bds=None):
-    """
+    def get_random_hazard_locations(self, n_hazards: int, hazard_radius: float):
+        """
 
-    Parameters
-    ----------
-    n_hazards : int
-        Number of hazards to create
-    hazard_radius : float
-        Radius of hazards
-    bds : list, optional
-        List of the form [[x_lb, x_ub], [y_lb, y_ub] denoting the bounds of the 2D arena
+        Parameters
+        ----------
+        n_hazards : int
+            Number of hazards to create
+        hazard_radius : float
+            Radius of hazards
 
-    Returns
-    -------
-    hazards_locs : ndarray
-        Numpy array of shape (n_hazards, 2) containing xy locations of hazards.
-    """
+        Returns
+        -------
+        hazards_locs : ndarray
+            Numpy array of shape (n_hazards, 2) containing xy locations of hazards.
+        """
 
-    if bds is None:
-        bds = np.array([[-3., -3.], [3., 3.]])
+        # Create buffer with boundaries
+        buffered_bds = np.copy(self.bds)
+        buffered_bds[0] = buffered_bds[0] + hazard_radius
+        buffered_bds[1] -= hazard_radius
 
-    # Create buffer with boundaries
-    buffered_bds = bds
-    buffered_bds[0] += hazard_radius
-    buffered_bds[1] -= hazard_radius
+        hazards = []
+        hazards_centers = np.zeros((n_hazards, 2))
+        n = 0  # Number of hazards actually placed
+        for i in range(n_hazards):
+            successfully_placed = False
+            iter = 0
+            hazard_type = np.random.randint(3)  # 0-> Circle 1->Square 2->Triangle
+            radius = hazard_radius * (1-0.2*2.0*(np.random.random() - 0.5))
+            while not successfully_placed and iter < 100:
+                hazards_centers[n] = (buffered_bds[1] - buffered_bds[0]) * np.random.random(2) + buffered_bds[0]
+                successfully_placed = np.all(np.linalg.norm(hazards_centers[:n] - hazards_centers[[n]], axis=1) > 3.5*hazard_radius)
+                successfully_placed = np.logical_and(successfully_placed, np.linalg.norm(self.goal_pos - hazards_centers[n]) > 2.0*hazard_radius)
+                successfully_placed = np.logical_and(successfully_placed, np.linalg.norm(self.initial_state[:2] - hazards_centers[n]) > 2.0*hazard_radius)
+                iter += 1
+            if not successfully_placed:
+                continue
+            if hazard_type == 0:  # Circle
+                hazards.append({'type': 'circle', 'location': hazards_centers[n], 'radius': radius})
+            elif hazard_type == 1:  # Square
+                hazards.append({'type': 'polygon', 'vertices': np.array(
+                    [[-radius, -radius], [-radius, radius], [radius, radius], [radius, -radius]])})
+                hazards[-1]['vertices'] += hazards_centers[n]
+            else:  # Triangle
+                hazards.append({'type': 'polygon', 'vertices': np.array(
+                    [[-radius, -radius], [-radius, radius], [radius, radius], [radius, -radius]])})
+                # Pick a vertex and delete it
+                idx = np.random.randint(4)
+                hazards[-1]['vertices'] = np.delete(hazards[-1]['vertices'], idx, axis=0)
+                hazards[-1]['vertices'] += hazards_centers[n]
+            n += 1
 
-    hazards_locs = np.zeros((n_hazards, 2))
+        self.hazards = hazards
 
-    for i in range(n_hazards):
-        successfully_placed = False
-        iter = 0
-        while not successfully_placed and iter < 500:
-            hazards_locs[i] = (bds[1] - bds[0]) * np.random.random(2) + bds[0]
-            successfully_placed = np.all(np.linalg.norm(hazards_locs[:i] - hazards_locs[i], axis=1) > 3*hazard_radius)
-            iter += 1
-
-        if iter >= 500:
-            raise Exception('Could not place hazards in arena.')
-
-    return hazards_locs
 
 if __name__ == "__main__":
 
@@ -328,7 +367,7 @@ if __name__ == "__main__":
     parser.add_argument('--env-name', default="SafetyGym", help='Either SafetyGym or Unicycle.')
     parser.add_argument('--gp_model_size', default=2000, type=int, help='gp')
     parser.add_argument('--k_d', default=3.0, type=float)
-    parser.add_argument('--gamma_b', default=20, type=float)
+    parser.add_argument('--gamma_b', default=50, type=float)
     parser.add_argument('--l_p', default=0.03, type=float, help="Look-ahead distance for unicycle dynamics output.")
     parser.add_argument('--cuda', action="store_true", help='run on CUDA (default: False)')
     parser.add_argument('--diff_qp', action='store_true', dest='diff_qp', help="Use differentiable QP layer.")
@@ -359,23 +398,7 @@ if __name__ == "__main__":
     episode_reward = 0
     episode_step = 0
 
-    # Plot initial state
-    fig, ax = plt.subplots()  # note we must use plt.subplots, not plt.subplot
-    for i in range(len(env.hazards_locations)):
-        ax.add_patch(plt.Circle(env.hazards_locations[i], env.hazards_radius, color='r'))
-    ax.add_patch(plt.Circle(env.goal_pos, env.goal_size, color='g'))
-    p_pos = ax.scatter(obs[0], obs[1], s=300)
-    p_theta = plt.quiver(obs[0], obs[1], obs[0] + .2 * obs[2], .2 * obs[3])
-    plt.xlim([-3.0, 3.0])
-    plt.ylim([-3.0, 3.0])
-    ax.set_aspect('equal', 'box')
-
     while not done:
-        # Plot current state
-        p_pos.set_offsets([obs[0], obs[1]])
-        p_theta.XY[:, 0] = obs[0]
-        p_theta.XY[:, 1] = obs[1]
-        p_theta.set_UVC(.2 * obs[2], .2 * obs[3])
         # Take Action and get next state
         # random_action = env.action_space.sample()
         state = dynamics_model.get_state(obs)
@@ -390,6 +413,7 @@ if __name__ == "__main__":
         if args.diff_qp:
             action_safe = to_numpy(action_safe)
         obs, reward, done, info = env.step(action_safe)
+        env.render()
         plt.pause(0.01)
         episode_reward += reward
         episode_step += 1

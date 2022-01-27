@@ -5,12 +5,12 @@ from envs.simulated_cars_env import SimulatedCarsEnv
 This file includes a function that simply returns one of the two supported environments. 
 """
 
-def build_env(args):
+def build_env(env_name, obs_config='default'):
     """Build our custom gym environment."""
 
-    if args.env_name == 'Unicycle':
-        return UnicycleEnv()
-    elif args.env_name == 'SimulatedCars':
+    if env_name == 'Unicycle':
+        return UnicycleEnv(obs_config)
+    elif env_name == 'SimulatedCars':
         return SimulatedCarsEnv()
     else:
-        raise Exception('Env {} not supported!'.format(args.env_name))
+        raise Exception('Env {} not supported!'.format(env_name))

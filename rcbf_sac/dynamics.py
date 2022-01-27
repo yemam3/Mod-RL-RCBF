@@ -44,7 +44,7 @@ class DynamicsModel:
         # Keep Disturbance History to estimate it using GPs
         self.disturb_estimators = None
         self.disturbance_history = dict()
-        self.history_counter = 0  # keeping only 1000 points in the buffer
+        self.history_counter = 0  # keeping only max_history_count points in the buffer
         self.max_history_count = args.gp_model_size  # How many points we want to have in the GP
         self.disturbance_history['state'] = np.zeros((self.max_history_count, self.n_s))
         self.disturbance_history['disturbance'] = np.zeros((self.max_history_count, self.n_s))
