@@ -148,7 +148,7 @@ def get_wrapped_policy(agent, cbf_wrapper, dynamics_model, compensator=None, war
         if warmup and action_space:
             action = action_space.sample()  # Sample random action
         else:
-            action = agent.select_action(observation, evaluate=policy_eval)  # Sample action from policy
+            action, _ = agent.select_action(observation, evaluate=policy_eval)  # Sample action from policy
 
         if compensator:
             action_comp = compensator(observation)
@@ -176,7 +176,7 @@ def sort_vertices_cclockwise(vertices):
             Array of size (n_v, 2) of the vertices sorted in counter-clockwise direction.
     """
 
-    assert(vertices.shape[1] == 2, "Vertices must each have dimension 2, got {}".format(vertices.shape[1]))
+    assert vertices.shape[1] == 2, "Vertices must each have dimension 2, got {}".format(vertices.shape[1])
 
     # Sort vertices
     polygon_center = vertices.sum(axis=0, keepdims=True) / vertices.shape[0]  # (1, d)

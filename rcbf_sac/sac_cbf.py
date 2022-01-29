@@ -28,7 +28,7 @@ class RCBF_SAC(object):
         hard_update(self.critic_target, self.critic)
 
         # Alter to Learn Task Modularly without safety considerations
-        self.mod_learning = args.mod_learning
+        self.cbf_mode = args.cbf_mode
 
         if self.policy_type == "Gaussian":
             # Target Entropy = −dim(A) (e.g. , -6 for HalfCheetah-v2) as given in the paper
@@ -48,7 +48,9 @@ class RCBF_SAC(object):
 
         # CBF layer
         self.env = env
-        self.cbf_layer = CBFQPLayer(env, args, args.gamma_b, args.k_d, args.l_p)
+        self.cbf_layer = None
+        if self.cbf_mode != 'off':
+            self.cbf_layer = CBFQPLayer(env, args, args.gamma_b, args.k_d, args.l_p)
 
     def select_action(self, state, dynamics_model, evaluate=False, warmup=False, safe_action=True):
 
@@ -69,9 +71,17 @@ class RCBF_SAC(object):
                 _, _, action = self.policy.sample(state)
 
         if safe_action:
-            action = self.get_safe_action(state, action, dynamics_model)
+            final_action = self.get_safe_action(state, action, dynamics_model)
+            cbf_action = final_action - action
+        else:
+            final_action = action
+            cbf_action = torch.zeros_like(final_action)
 
-        return action.detach().cpu().numpy()[0] if expand_dim else action.detach().cpu().numpy()
+        if expand_dim:
+            return final_action.detach().cpu().numpy()[0], cbf_action.detach().cpu().numpy()[0]
+
+        return final_action.detach().cpu().numpy(), cbf_action.detach().cpu().numpy()
+
 
     def update_parameters(self, memory, batch_size, updates, dynamics_model):
         """
@@ -98,7 +108,7 @@ class RCBF_SAC(object):
 
         with torch.no_grad():
             next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)
-            if not self.mod_learning:
+            if self.cbf_mode == 'full':
                 next_state_action = self.get_safe_action(next_state_batch, next_state_action, dynamics_model)
             qf1_next_target, qf2_next_target = self.critic_target(next_state_batch, next_state_action)
             min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
@@ -115,7 +125,7 @@ class RCBF_SAC(object):
         # Compute Actions and log probabilities
         pi, log_pi, _ = self.policy.sample(state_batch)
         # Compute safe action using Differentiable CBF-QP
-        if not self.mod_learning:
+        if self.cbf_mode == 'full':
             pi = self.get_safe_action(state_batch, pi, dynamics_model)
 
         qf1_pi, qf2_pi = self.critic(state_batch, pi)

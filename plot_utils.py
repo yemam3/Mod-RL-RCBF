@@ -9,11 +9,9 @@ import os
 def plot_value_function(env, agent, dynamics_model, save_path='', safe_action=False):
 
     fn = save_path + '/figures/vf_plot.png'
-    if save_path and os.path.exists(save_path + '/figures/'):
+    if save_path and os.path.exists(fn):
         prYellow('Not plotting value function since figure already exists at {}'.format(fn))
         return
-    else:
-        os.mkdir(save_path + '/figures')
 
     if env.dynamics_mode == 'Unicycle':
         res = 20
@@ -28,7 +26,7 @@ def plot_value_function(env, agent, dynamics_model, save_path='', safe_action=Fa
         for i in tqdm(range(states.shape[0])):
             env.state = states[i]
             obs[i] = env.get_obs()
-            actions[i] = agent.select_action(obs[i], dynamics_model, evaluate=True, safe_action=safe_action)
+            actions[i], _ = agent.select_action(obs[i], dynamics_model, evaluate=True, safe_action=safe_action)
         obs = to_tensor(obs, torch.FloatTensor, agent.device)
         actions = to_tensor(actions, torch.FloatTensor, agent.device)
         vf1, vf2 = agent.critic(obs, actions)  # Each is Nx3
@@ -47,12 +45,14 @@ def plot_value_function(env, agent, dynamics_model, save_path='', safe_action=Fa
                 ax.add_patch(plt.Polygon(env.hazards[i]['vertices'], color='r', fill=False, linewidth=2.0))
 
         ax.add_patch(plt.Circle(env.goal_pos, env.goal_size, color='g', fill=False, linewidth=2.0))
-        obs = env.reset()
-        ax.add_patch(plt.Circle(obs[:2], 0.3, color='b', fill=False, linewidth=2.0))
+        for initial_state in env.initial_state:
+            ax.add_patch(plt.Circle(initial_state[:2], 0.3, color='b', fill=False, linewidth=2.0))
 
-        c = ax.pcolormesh(xs, ys, vf.reshape((res, res)), cmap='hot', shading='nearest')
+        c = ax.pcolormesh(xs, ys, vf.reshape((res, res)), cmap='hot', shading='nearest', vmin=1.0, vmax=2.0, alpha=0.8)
         fig.colorbar(c, ax=ax)
         if save_path:
+            if not os.path.exists(save_path + '/figures'):
+                os.mkdir(save_path + '/figures')
             plt.savefig(save_path + '/figures/vf_plot.png')
         else:
             plt.show()

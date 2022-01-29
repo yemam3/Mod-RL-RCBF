@@ -54,7 +54,7 @@ def train(agent, env, dynamics_model, args, experiment=None):
                         experiment.log_metric('entropy_temperature/alpha', alpha, step=updates)
                     updates += 1
 
-            action = agent.select_action(obs, dynamics_model, warmup=args.start_steps > total_numsteps)  # Sample action from policy
+            action, cbf_action = agent.select_action(obs, dynamics_model, warmup=args.start_steps > total_numsteps, safe_action=args.cbf_mode!='off')  # Sample action from policy
 
             next_obs, reward, done, info = env.step(action)  # Step
             if 'cost_exception' in info:
@@ -68,7 +68,10 @@ def train(agent, env, dynamics_model, args, experiment=None):
             # (https://github.com/openai/spinningup/blob/master/spinup/algos/sac/sac.py)
             mask = 1 if episode_steps == env.max_episode_steps else float(not done)
 
-            memory.push(obs, action, reward, next_obs, mask, t=episode_steps * env.dt, next_t=(episode_steps+1) * env.dt)  # Append transition to memory
+            if args.cbf_mode == 'baseline':  # action is (rl_action + cbf_action)
+                memory.push(obs, action-cbf_action, reward, next_obs, mask, t=episode_steps * env.dt, next_t=(episode_steps+1) * env.dt)  # Append transition to memory
+            else:
+                memory.push(obs, action, reward, next_obs, mask, t=episode_steps * env.dt, next_t=(episode_steps+1) * env.dt)  # Append transition to memory
 
             # Update state and store transition for GP model learning
             next_state = dynamics_model.get_state(next_obs)
@@ -103,7 +106,7 @@ def train(agent, env, dynamics_model, args, experiment=None):
                 episode_cost = 0
                 done = False
                 while not done:
-                    action = agent.select_action(obs, dynamics_model, evaluate=True)  # Sample action from policy
+                    action, _ = agent.select_action(obs, dynamics_model, evaluate=True, safe_action=args.cbf_mode!='off')  # Sample action from policy
                     next_obs, reward, done, info = env.step(action)
                     episode_reward += reward
                     episode_cost += info.get('cost', 0)
@@ -125,12 +128,12 @@ def train(agent, env, dynamics_model, args, experiment=None):
 def test(agent, dynamics_model, args, visualize=True, debug=True):
 
     model_path = args.resume
-    safe_action = args.use_cbf
+    safe_action = args.cbf_mode != 'off'
     agent.load_weights(model_path)
     dynamics_model.load_disturbance_models(model_path)
 
     def policy(observation):
-        return agent.select_action(observation, dynamics_model, safe_action=safe_action, evaluate=True)
+        return agent.select_action(observation, dynamics_model, safe_action=safe_action, evaluate=True)[0]
 
     if visualize and 'Unicycle' in model_path:
         from plot_utils import plot_value_function
@@ -141,7 +144,8 @@ def test(agent, dynamics_model, args, visualize=True, debug=True):
     for episode in range(args.validate_episodes):
 
         env = build_env(args.env_name, obs_config=args.obs_config)
-        agent.cbf_layer.env = env
+        if agent.cbf_layer:
+            agent.cbf_layer.env = env
 
         # reset at the start of episode
         observation = env.reset()
@@ -188,7 +192,6 @@ if __name__ == "__main__":
     parser.add_argument('--comet_workspace', default='', help='Comet workspace')
     # SAC Args
     parser.add_argument('--mode', default='train', type=str, help='support option: train/test')
-    parser.add_argument('--no_cbf', action='store_false', dest='use_cbf', help="Whether to use CBFs --only available for test mode")
     parser.add_argument('--visualize', action='store_true', dest='visualize', help='visualize env -only available test mode')
     parser.add_argument('--output', default='output', type=str, help='')
     parser.add_argument('--policy', default="Gaussian",
@@ -236,7 +239,7 @@ if __name__ == "__main__":
     parser.add_argument('--l_p', default=0.03, type=float,
                         help="Look-ahead distance for unicycle dynamics output.")
     # Modular Task Learning
-    parser.add_argument('--mod_learning', action='store_true', dest='mod_learning', help="Alters the Q-loss to learn task modularly.")
+    parser.add_argument('--cbf_mode', default='mod', help="Options are 'off, 'baseline', 'full', 'mod'.")
     args = parser.parse_args()
 
     if args.resume == 'default':
@@ -276,10 +279,9 @@ if __name__ == "__main__":
             # Log args on comet.ml
             experiment.log_parameters(vars(args))
             experiment_tags = [str(args.batch_size) + '_batch',
-                               str(args.updates_per_step) + '_step_updates']
-            if args.mod_learning:
-                experiment_tags.append('mod_learning')
-            print(experiment_tags)
+                               str(args.updates_per_step) + '_step_updates',
+                               args.cbf_mode]
+            print('Comet tags: {}'.format(experiment_tags))
             experiment.add_tags(experiment_tags)
         else:
             experiment = None

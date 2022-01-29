@@ -29,7 +29,7 @@ class UnicycleEnv(gym.Env):
         # Initialize Env
         self.state = None
         self.episode_step = 0
-        self.initial_state = np.array([-2.5, -2.5, 0.0])
+        self.initial_state = np.array([[-2.5, -2.5, 0.0], [-2.5, 2.5, 0.0], [-2.5, 0.0, 0.0], [2.5, -2.5, np.pi/2]])
         self.goal_pos = np.array([2.5, 2.5])
 
         self.reset()
@@ -154,7 +154,7 @@ class UnicycleEnv(gym.Env):
         self.episode_step = 0
 
         # Re-initialize state
-        self.state = np.copy(self.initial_state)
+        self.state = np.copy(self.initial_state[np.random.randint(self.initial_state.shape[0])])
 
         # Re-initialize last goal dist
         self.last_goal_dist = self._goal_dist()
@@ -331,7 +331,7 @@ class UnicycleEnv(gym.Env):
                 hazards_centers[n] = (buffered_bds[1] - buffered_bds[0]) * np.random.random(2) + buffered_bds[0]
                 successfully_placed = np.all(np.linalg.norm(hazards_centers[:n] - hazards_centers[[n]], axis=1) > 3.5*hazard_radius)
                 successfully_placed = np.logical_and(successfully_placed, np.linalg.norm(self.goal_pos - hazards_centers[n]) > 2.0*hazard_radius)
-                successfully_placed = np.logical_and(successfully_placed, np.linalg.norm(self.initial_state[:2] - hazards_centers[n]) > 2.0*hazard_radius)
+                successfully_placed = np.logical_and(successfully_placed, np.all(np.linalg.norm(self.initial_state[:, :2] - hazards_centers[[n]], axis=1) > 2.0*hazard_radius))
                 iter += 1
             if not successfully_placed:
                 continue

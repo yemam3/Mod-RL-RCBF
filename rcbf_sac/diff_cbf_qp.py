@@ -273,7 +273,7 @@ class CBFQPLayer:
                                 dot_products[mask_, None] * segments[j].tile((torch.sum(mask_), 1)) + vertices[[j]] -
                             ps[mask_], dim=1)
                         # Compute hs_ for this segment
-                        hs_ = 0.5 * ((dists2seg ** 2) + buffer)  # (batch_size,)
+                        hs_ = 0.5 * ((dists2seg ** 2) + 0.5*buffer)  # (batch_size,)
                         # Compute dhdps TODO: Can be optimized to only compute for indices that need updating
                         dhdps_ = torch.zeros((batch_size, 2))
                         if mask0_.sum() > 0:
