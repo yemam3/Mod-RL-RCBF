@@ -317,7 +317,6 @@ if __name__ == "__main__":
         args.resume = os.getcwd() + '/output/{}-run{}'.format(args.env_name, args.resume)
 
     if args.cuda:
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device_num)
         torch.cuda.set_device(args.device_num)
 
     # Environment
