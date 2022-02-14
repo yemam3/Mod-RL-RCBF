@@ -9,7 +9,7 @@ class UnicycleEnv(gym.Env):
 
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, obs_config='default'):
+    def __init__(self, obs_config='default', rand_init=False):
 
         super(UnicycleEnv, self).__init__()
 
@@ -31,8 +31,10 @@ class UnicycleEnv(gym.Env):
         self.episode_step = 0
         self.initial_state = np.array([[-2.5, -2.5, 0.0], [-2.5, 2.5, 0.0], [-2.5, 0.0, 0.0], [2.5, -2.5, np.pi/2]])
         self.goal_pos = np.array([2.5, 2.5])
+        self.rand_init = rand_init  # Random Initial State
 
         self.reset()
+
         # Get Dynamics
         self.get_f, self.get_g = self._get_dynamics()
         # Disturbance
@@ -154,7 +156,10 @@ class UnicycleEnv(gym.Env):
         self.episode_step = 0
 
         # Re-initialize state
-        self.state = np.copy(self.initial_state[np.random.randint(self.initial_state.shape[0])])
+        if self.rand_init:
+            self.state = np.copy(self.initial_state[np.random.randint(self.initial_state.shape[0])])
+        else:
+            self.state = np.copy(self.initial_state[0])
 
         # Re-initialize last goal dist
         self.last_goal_dist = self._goal_dist()

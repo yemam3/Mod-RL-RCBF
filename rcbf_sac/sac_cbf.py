@@ -3,9 +3,11 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from rcbf_sac.utils import soft_update, hard_update
 from rcbf_sac.model import GaussianPolicy, QNetwork, DeterministicPolicy
-import numpy as np
 from rcbf_sac.diff_cbf_qp import CBFQPLayer
 from rcbf_sac.utils import to_tensor
+from rcbf_sac.compensator import Compensator
+import numpy as np
+
 
 class RCBF_SAC(object):
 
@@ -52,6 +54,12 @@ class RCBF_SAC(object):
         if self.cbf_mode != 'off':
             self.cbf_layer = CBFQPLayer(env, args, args.gamma_b, args.k_d, args.l_p)
 
+        # compensator
+        if args.use_comp:
+            self.compensator = Compensator(num_inputs, action_space.shape[0], action_space.low, action_space.high, args)
+        else:
+            self.compensator = None
+
     def select_action(self, state, dynamics_model, evaluate=False, warmup=False, safe_action=True):
 
         state = to_tensor(state, torch.FloatTensor, self.device)
@@ -70,6 +78,10 @@ class RCBF_SAC(object):
             else:
                 _, _, action = self.policy.sample(state)
 
+        if self.compensator:
+            action_comp = self.compensator(state)
+            action += action_comp
+
         if safe_action:
             final_action = self.get_safe_action(state, action, dynamics_model)
             cbf_action = final_action - action
@@ -77,13 +89,17 @@ class RCBF_SAC(object):
             final_action = action
             cbf_action = torch.zeros_like(final_action)
 
-        if expand_dim:
-            return final_action.detach().cpu().numpy()[0], cbf_action.detach().cpu().numpy()[0]
+        if not self.compensator:
+            if expand_dim:
+                return final_action.detach().cpu().numpy()[0], cbf_action.detach().cpu().numpy()[0]
+            return final_action.detach().cpu().numpy(), cbf_action.detach().cpu().numpy()
+        else:
+            action_comp = action_comp.detach().cpu().numpy()[0] if expand_dim else action_comp.detach().cpu().numpy()
+            cbf_action = cbf_action.detach().cpu().numpy()[0] if expand_dim else cbf_action.detach().cpu().numpy()
+            final_action = final_action.detach().cpu().numpy()[0] if expand_dim else final_action.detach().cpu().numpy()
+            return final_action, action_comp, cbf_action
 
-        return final_action.detach().cpu().numpy(), cbf_action.detach().cpu().numpy()
-
-
-    def update_parameters(self, memory, batch_size, updates, dynamics_model):
+    def update_parameters(self, memory, batch_size, updates, dynamics_model, memory_model=None, real_ratio=None):
         """
 
         Parameters
@@ -92,13 +108,32 @@ class RCBF_SAC(object):
         batch_size : int
         updates : int
         dynamics_model : GP Dynamics' Disturbance model D(x) in x_dot = f(x) + g(x)u + D(x)
+        memory_model : ReplayMemory, optional
+                If not none, perform model-based RL.
+        real_ratio : float, optional
+                If performing model-based RL, then real_ratio*batch_size are sampled from the real buffer, and the rest
+                is sampled from the model buffer.
 
         Returns
         -------
 
         """
 
-        state_batch, action_batch, reward_batch, next_state_batch, mask_batch, t_batch, next_t_batch = memory.sample(batch_size=batch_size)
+
+        # Model-based vs regular RL
+        if memory_model and real_ratio:
+            state_batch, action_batch, reward_batch, next_state_batch, mask_batch, t_batch, next_t_batch = memory.sample(
+                batch_size=int(real_ratio * batch_size))
+            state_batch_m, action_batch_m, reward_batch_m, next_state_batch_m, mask_batch_m, t_batch_m, next_t_batch_m = memory_model.sample(
+            batch_size = int((1 - real_ratio) * batch_size))
+            state_batch = np.vstack((state_batch, state_batch_m))
+            action_batch = np.vstack((action_batch, action_batch_m))
+            reward_batch = np.hstack((reward_batch, reward_batch_m))
+            next_state_batch = np.vstack((next_state_batch, next_state_batch_m))
+            mask_batch = np.hstack((mask_batch, mask_batch_m))
+        else:
+            state_batch, action_batch, reward_batch, next_state_batch, mask_batch, t_batch, next_t_batch = memory.sample(batch_size=batch_size)
+
 
         state_batch = torch.FloatTensor(state_batch).to(self.device)
         next_state_batch = torch.FloatTensor(next_state_batch).to(self.device)
@@ -155,6 +190,11 @@ class RCBF_SAC(object):
 
         return qf1_loss.item(), qf2_loss.item(), policy_loss.item(), alpha_loss.item(), alpha_tlogs.item()
 
+    def update_parameters_compensator(self, comp_rollouts):
+
+        if self.compensator:
+            self.compensator.train(comp_rollouts)
+
     # Save model parameters
     def save_model(self, output):
         print('Saving models in {}'.format(output))
@@ -166,6 +206,8 @@ class RCBF_SAC(object):
             self.critic.state_dict(),
             '{}/critic.pkl'.format(output)
         )
+        if self.compensator:
+            self.compensator.save_model(output)
 
     # Load model parameters
     def load_weights(self, output):
@@ -180,11 +222,8 @@ class RCBF_SAC(object):
             torch.load('{}/critic.pkl'.format(output), map_location=self.device)
         )
 
-    def load_model(self, actor_path, critic_path):
-        if actor_path is not None:
-            self.policy.load_state_dict(torch.load(actor_path))
-        if critic_path is not None:
-            self.critic.load_state_dict(torch.load(critic_path))
+        if self.compensator:
+            self.compensator.load_weights(output)
 
     def get_safe_action(self, obs_batch, action_batch, dynamics_model):
         """Given a nominal action, returns a minimally-altered safe action to take.
