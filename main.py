@@ -291,7 +291,7 @@ if __name__ == "__main__":
     parser.add_argument('--validate_episodes', default=5, type=int, help='how many episode to perform during validate experiment')
     parser.add_argument('--validate_steps', default=1000, type=int, help='how many steps to perform a validate experiment')
     # CBF, Dynamics, Env Args
-    parser.add_argument('--gp_model_size', default=1000, type=int, help='gp')
+    parser.add_argument('--gp_model_size', default=2000, type=int, help='gp')
     parser.add_argument('--gp_max_episodes', default=100, type=int, help='gp max train episodes.')
     parser.add_argument('--k_d', default=3.0, type=float)
     parser.add_argument('--gamma_b', default=50, type=float)
