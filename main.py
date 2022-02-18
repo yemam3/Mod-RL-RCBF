@@ -200,7 +200,7 @@ def test(agent, dynamics_model, args, visualize=True, debug=True):
 
     for episode in range(args.validate_episodes):
 
-        env = build_env(args.env_name, obs_config=args.obs_config)
+        env = build_env(args.env_name, obs_config=args.obs_config, rand_init=args.rand_init)
         if agent.cbf_layer:
             agent.cbf_layer.env = env
 
@@ -320,7 +320,7 @@ if __name__ == "__main__":
         torch.cuda.set_device(args.device_num)
 
     # Environment
-    env = build_env(args.env_name, args.obs_config)
+    env = build_env(args.env_name, args.obs_config, args.rand_init)
 
     # Agent
     agent = RCBF_SAC(env.observation_space.shape[0], env.action_space, env, args)

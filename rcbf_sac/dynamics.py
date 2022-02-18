@@ -20,8 +20,9 @@ A few things to note:
 
 
 DYNAMICS_MODE = {'Unicycle': {'n_s': 3, 'n_u': 2},   # state = [x y θ]
-                 'SimulatedCars': {'n_s': 10, 'n_u': 1}}  # state = [x y θ v ω]
-MAX_STD = {'Unicycle': [2e-1, 2e-1, 2e-1], 'SimulatedCars': [0, 0.2, 0, 0.2, 0, 0.2, 0, 0.2, 0, 0.2]}
+                 'SimulatedCars': {'n_s': 10, 'n_u': 1},  # state = [x y θ v ω]
+                 'Pvtol': {'n_s': 6, 'n_u': 2}}  # state = [x y θ v_x v_y thrust]
+MAX_STD = {'Unicycle': [2e-1, 2e-1, 2e-1], 'SimulatedCars': [0, 0.2, 0, 0.2, 0, 0.2, 0, 0.2, 0, 0.2],  'Pvtol': [0, 0, 0, 0, 0, 0]}
 
 
 class DynamicsModel:
@@ -182,6 +183,25 @@ class DynamicsModel:
                 f_x[:, 1::2] = accels
                 return f_x
 
+        elif self.env.dynamics_mode == 'Pvtol':
+
+            def get_f(state_batch, t_batch=None):
+                theta = state_batch[:, 2]
+                f_x = np.zeros(state_batch.shape)
+                f_x[:, 0] = state_batch[:, 3]  # x_d = v_x
+                f_x[:, 1] = state_batch[:, 4]  # y_d = v_y
+                f_x[:, 2] = 0  # theta_d = omega = u_2
+                f_x[:, 3] = -np.sin(theta) * state_batch[:, 5]  # v_x_d = ...
+                f_x[:, 4] = np.cos(theta) * state_batch[:, 5] - 1  # v_y_d = ...
+                f_x[:, 5] = 0  # thrust_d = u1
+                return f_x
+
+            def get_g(state_batch, t_batch=None):
+                g_x = np.zeros((state_batch.shape[0], state_batch.shape[1], 2))
+                g_x[:, 2, 1] = 1.0
+                g_x[:, 5, 0] = 1.0
+                return g_x
+
         else:
             raise Exception('Unknown Dynamics mode.')
 
@@ -223,6 +243,15 @@ class DynamicsModel:
             state_batch = np.copy(obs)
             state_batch[:, ::2] *= 100.0  # Scale Positions
             state_batch[:, 1::2] *= 30.0  # Scale Velocities
+        elif self.env.dynamics_mode == 'Pvtol':
+            state_batch = np.zeros((obs.shape[0], 6))
+            theta = np.arctan2(obs[:, 3], obs[:, 2])
+            state_batch[:, 0] = obs[:, 0]
+            state_batch[:, 1] = obs[:, 1]
+            state_batch[:, 2] = theta
+            state_batch[:, 3] = obs[:, 4]
+            state_batch[:, 4] = obs[:, 5]
+            state_batch[:, 5] = obs[:, 6]
         else:
             raise Exception('Unknown dynamics')
 
@@ -256,6 +285,15 @@ class DynamicsModel:
             obs = np.copy(state_batch)
             obs[:, ::2] /= 100.0  # Scale Positions
             obs[:, 1::2] /= 30.0  # Scale Velocities
+        elif self.env.dynamics_mode == 'PVTOL':
+            obs = np.zeros((state_batch.shape[0], 7))
+            obs[:, 0] = state_batch[:, 0]
+            obs[:, 1] = state_batch[:, 1]
+            obs[:, 2] = np.cos(state_batch[:, 2])
+            obs[:, 3] = np.sin(state_batch[:, 2])
+            obs[:, 4] = state_batch[:, 4]
+            obs[:, 5] = state_batch[:, 5]
+            obs[:, 6] = state_batch[:, 6]
         else:
             raise Exception('Unknown dynamics')
         return obs
