@@ -16,7 +16,6 @@ class PvtolEnv(gym.Env):
         self.dynamics_mode = 'Pvtol'
         # Define action and observation space
         # They must be gym.spaces objects
-        # Example when using discrete actions:
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,))
         self.safe_action_space = spaces.Box(low=-2.5, high=2.5, shape=(2,))
         self.observation_space = spaces.Box(low=-1e10, high=1e10, shape=(10,))
@@ -24,7 +23,7 @@ class PvtolEnv(gym.Env):
 
         self.dt = 0.02
         self.max_episode_steps = 1500
-        self.reward_goal = 1.0
+        self.reward_goal = 3.0
         self.goal_size = 0.3
         # Initialize Env
         self.state = None
@@ -39,14 +38,14 @@ class PvtolEnv(gym.Env):
         self.obs_config = obs_config
         if obs_config == 'default':
             self.hazards = [{'radius': 0.4, 'location': np.array([-2.5, 2.0])},
-                            {'radius': 0.4, 'location': np.array([1.5, 0.])},
+                            {'radius': 0.4, 'location': np.array([1.5, 0.2])},
                             {'radius': 0.4, 'location': np.array([-2.5, 0.])},
                             {'radius': 0.4, 'location': np.array([-.5, 1.5])},
                             {'radius': 0.4, 'location': np.array([-.5, -1.5])},
                             {'radius': 0.4, 'location': np.array([1.5, -1.8])},
-                            {'radius': 0.4, 'location': np.array([-2.5, -2.0])},
-                            {'radius': 0.4, 'location': np.array([5.00, 0.0])},
-                            {'radius': 0.4, 'location': np.array([3.75, 0.75])}]
+                            {'radius': 0.4, 'location': np.array([-2.5, -2.2])},
+                            {'radius': 0.4, 'location': np.array([5.25, 0.75])},
+                            {'radius': 0.4, 'location': np.array([4.0, 0.0])}]
         elif obs_config.lower() == 'none':
             self.hazards = []
         else:
@@ -122,7 +121,7 @@ class PvtolEnv(gym.Env):
             done = self.episode_step >= self.max_episode_steps
 
         # Include constraint cost in reward
-        if np.any(np.sum((self.state[:2] - self.hazard_locations)**2, axis=1) < self.hazards_radius**2):
+        if self.hazards and np.any(np.sum((self.state[:2] - self.hazard_locations)**2, axis=1) < self.hazards_radius**2):
             if 'cost' in info:
                 info['cost'] += 0.1
             else:

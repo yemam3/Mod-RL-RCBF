@@ -2,10 +2,9 @@ import argparse
 import numpy as np
 import torch
 from rcbf_sac.dynamics import DYNAMICS_MODE
-from rcbf_sac.utils import to_tensor, prRed, get_polygon_normals, sort_vertices_cclockwise
+from rcbf_sac.utils import to_tensor, to_numpy, prRed, get_polygon_normals, sort_vertices_cclockwise
 from time import time
 from qpth.qp import QPFunction
-
 
 class CBFQPLayer:
 
@@ -40,7 +39,7 @@ class CBFQPLayer:
         self.action_dim = env.action_space.shape[0]
         # self.num_ineq_constraints = self.num_cbfs + 2 * self.action_dim
 
-    def get_safe_action(self, state_batch, action_batch, mean_pred_batch, sigma_batch):
+    def get_safe_action(self, state_batch, action_batch, mean_pred_batch, sigma_batch, modular=False):
         """
 
         Parameters
@@ -67,13 +66,16 @@ class CBFQPLayer:
             mean_pred_batch = mean_pred_batch.unsqueeze(0)
             sigma_batch = sigma_batch.unsqueeze(0)
 
-        start_time = time()
-        Ps, qs, Gs, hs = self.get_cbf_qp_constraints(state_batch, action_batch, mean_pred_batch, sigma_batch)
-        build_qp_time = time()
-        safe_action_batch = self.solve_qp(Ps, qs, Gs, hs)
-        # prCyan('Time to get constraints = {} - Time to solve QP = {} - time per qp = {} - batch_size = {} - device = {}'.format(build_qp_time - start_time, time() - build_qp_time, (time() - build_qp_time) / safe_action_batch.shape[0], Ps.shape[0], Ps.device))
-        # The actual safe action is the cbf action + the nominal action
-        final_action = torch.clamp(action_batch + safe_action_batch, self.u_min.repeat(action_batch.shape[0], 1), self.u_max.repeat(action_batch.shape[0], 1))
+        if modular and self.env.dynamics_mode != 'Pvtol':
+            final_action = torch.clamp(action_batch, self.u_min.repeat(action_batch.shape[0], 1), self.u_max.repeat(action_batch.shape[0], 1))
+        else:
+            start_time = time()
+            Ps, qs, Gs, hs = self.get_cbf_qp_constraints(state_batch, action_batch, mean_pred_batch, sigma_batch, modular=modular)
+            build_qp_time = time()
+            safe_action_batch = self.solve_qp(Ps, qs, Gs, hs)
+            # prCyan('Time to get constraints = {} - Time to solve QP = {} - time per qp = {} - batch_size = {} - device = {}'.format(build_qp_time - start_time, time() - build_qp_time, (time() - build_qp_time) / safe_action_batch.shape[0], Ps.shape[0], Ps.device))
+            # The actual safe action is the cbf action + the nominal action
+            final_action = torch.clamp(action_batch + safe_action_batch, self.u_min.repeat(action_batch.shape[0], 1), self.u_max.repeat(action_batch.shape[0], 1))
 
         return final_action if not expand_dims else final_action.squeeze(0)
 
@@ -136,13 +138,12 @@ class CBFQPLayer:
             bs = torch.Tensor().to(self.device).double()
 
         result = QPFunction(verbose=0, **solver_args)(Qs.double(), ps.double(), Gs.double(), hs.double(), As, bs).float()
-
         if torch.any(torch.isnan(result)):
             prRed('QP Failed to solve - result is nan == {}!'.format(torch.any(torch.isnan(result))))
             raise Exception('QP Failed to solve')
         return result
 
-    def get_cbf_qp_constraints(self, state_batch, action_batch, mean_pred_batch, sigma_pred_batch):
+    def get_cbf_qp_constraints(self, state_batch, action_batch, mean_pred_batch, sigma_pred_batch, modular=False):
         """Build up matrices required to solve qp
         Program specifically solves:
             minimize_{u,eps} 0.5 * u^T P u + q^T u
@@ -319,7 +320,21 @@ class CBFQPLayer:
 
         elif self.env.dynamics_mode == 'Pvtol':
 
-            num_cbfs = 4 + 1 + 1 + len(self.env.hazards)  # 4 for the arena, 1 for thrust and angle limits, and 1 for each obstacle
+            # # Get nearby obstacles (if batch_size is 1) TODO: Generalize this to any batch_size
+            # if batch_size == 1:
+            #     nearby_hazards = np.argwhere(np.sum((to_numpy(state_batch.squeeze()[:2]) - self.env.hazard_locations) ** 2, axis=1) < (6*self.env.hazards_radius) ** 2).squeeze(-1)
+            #     hazards_locations = self.env.hazard_locations[nearby_hazards]
+            #     hazards_radius = self.env.hazards_radius[nearby_hazards]
+            # else:
+            #     hazards_locations = self.env.hazard_locations
+            #     hazards_radius = self.env.hazards_radius
+
+            hazards_locations = self.env.hazard_locations
+            hazards_radius = self.env.hazards_radius
+
+            num_cbfs = 4 + 1 + 1
+            if not modular:  # 4 for the arena, 1 for thrust and 1 for angle limits, and 1 for each obstacle
+                num_cbfs += hazards_locations.shape[0]
             buffer = 0.3
 
             # Orientation
@@ -344,84 +359,87 @@ class CBFQPLayer:
             num_constraints = num_cbfs + 2 * n_u  # each cbf is a constraint, and we need to add actuator constraints (n_u of them)
 
             # Inequality constraints (G[u, eps] <= h)
-            G = torch.zeros((batch_size, num_constraints, n_u+num_cbfs)).to(self.device)  # the extra variable is for epsilon (to make sure qp is always feasible)
+            G = torch.zeros((batch_size, num_constraints, n_u+4)).to(self.device)  # the extra variable is for epsilon (to make sure qp is always feasible)
             h = torch.zeros((batch_size, num_constraints)).to(self.device)
             ineq_constraint_counter = 0
 
             # Add Left boundary CBF
-            gamma, gamma_2, gamma_3 = 1, 1, 1
+            gamma, gamma_2, gamma_3 = 1.5, 1.5, 1.5
             G[:, 0, 0] = s_thetas  # thrust_derivative
             G[:, 0, 1] = c_thetas * thrusts  # omega
             G[:, 0, n_u] = -1  # for slack
             h[:, 0] = (gamma+gamma_2+gamma_3)*(-s_thetas * thrusts)
             h[:, 0] += (gamma_3*(gamma_2 + gamma) + gamma_2 * gamma)*(vs[:, 0])
-            h[:, 0] += gamma * gamma_2 * gamma_3 * (ps[:, 0] - self.env.bds[0, 0] - buffer - 0.2)
+            h[:, 0] += gamma * gamma_2 * gamma_3 * (ps[:, 0] - self.env.bds[0, 0] - buffer) - (s_thetas * action_batch[:, 0, 0] + c_thetas * thrusts * action_batch[:, 1, 0])
             ineq_constraint_counter += 1
 
             # Add Right boundary CBF
-            gamma, gamma_2, gamma_3 = 1, 1, 1
+            gamma, gamma_2, gamma_3 = 1.5, 1.5, 1.5
             G[:, 1, 0] = -s_thetas  # thrust_derivative
             G[:, 1, 1] = -c_thetas * thrusts  # omega
-            G[:, 1, n_u+1] = -1  # for slack
+            G[:, 1, n_u] = -1  # for slack
             h[:, 1] = (gamma+gamma_2+gamma_3)*(s_thetas * thrusts)
             h[:, 1] += (gamma_3*(gamma_2 + gamma) + gamma_2 * gamma)*(-vs[:, 0])
-            h[:, 1] += gamma * gamma_2 * gamma_3 * (self.env.bds[1, 0] - ps[:, 0] - buffer - 0.2)
+            h[:, 1] += gamma * gamma_2 * gamma_3 * (self.env.bds[1, 0] - ps[:, 0] - buffer) + (s_thetas * action_batch[:, 0, 0] + c_thetas * thrusts * action_batch[:, 1, 0])
             ineq_constraint_counter += 1
 
             # Add Bottom boundary CBF
-            gamma, gamma_2, gamma_3 = 1, 1, 1
+            gamma, gamma_2, gamma_3 = 1.5, 1.5, 1.5
             G[:, 2, 0] = -c_thetas  # thrust_derivative
             G[:, 2, 1] = s_thetas * thrusts  # omega
-            G[:, 2, n_u+2] = -1  # for slack
+            G[:, 2, n_u] = -1  # for slack
             h[:, 2] = (gamma+gamma_2+gamma_3)*(c_thetas * thrusts - 1)  # hdd
             h[:, 2] += (gamma_3*(gamma_2 + gamma) + gamma_2 * gamma)*(vs[:, 1])  # hd
-            h[:, 2] += gamma * gamma_2 * gamma_3 * (ps[:, 1] - self.env.bds[0, 1] - buffer - 0.2)  # h
+            h[:, 2] += gamma * gamma_2 * gamma_3 * (ps[:, 1] - self.env.bds[0, 1] - buffer) + (c_thetas * action_batch[:, 0, 0] - s_thetas * thrusts * action_batch[:, 1, 0])  # h
             ineq_constraint_counter += 1
 
             # Add Top boundary CBF
-            gamma, gamma_2, gamma_3 = 1, 1, 1
+            gamma, gamma_2, gamma_3 = 1.5, 1.5, 1.5
             G[:, 3, 0] = c_thetas  # thrust_derivative
             G[:, 3, 1] = -s_thetas * thrusts  # omega
-            G[:, 3, n_u+3] = -1  # for slack
+            G[:, 3, n_u] = -1  # for slack
             h[:, 3] = (gamma+gamma_2+gamma_3)*(-c_thetas * thrusts + 1)  # hdd
             h[:, 3] += (gamma_3*(gamma_2 + gamma) + gamma_2 * gamma)*(-vs[:, 1])  # hd
-            h[:, 3] += gamma * gamma_2 * gamma_3 * (self.env.bds[1, 1] - ps[:, 1] - buffer - 0.2)  # h
+            h[:, 3] += gamma * gamma_2 * gamma_3 * (self.env.bds[1, 1] - ps[:, 1] - buffer) + (-c_thetas * action_batch[:, 0, 0] + s_thetas * thrusts * action_batch[:, 1, 0]) # h
             ineq_constraint_counter += 1
 
-            # Add 45-degree constraint on theta (h = 0.5 * [(pi/4)**2 - theta^2])
-            gamma = 1
+            # Add 45-degree constraint on theta (h = 0.5 * [(pi/3)**2 - theta^2])
+            gamma = 2
             G[:, 4, 0] = 0  # thrust_derivative
             G[:, 4, 1] = thetas  # omega
-            G[:, 4, n_u+4] = -1  # for slack
-            h[:, 4] = gamma * 0.5 * ((np.pi/4.0)**2 - thetas**2)  # h
+            G[:, 4, n_u+1] = -1  # for slack
+            h[:, 4] = gamma * 0.5 * ((np.pi/3.0)**2 - thetas**2) - thetas * action_batch[:, 1, 0]  # h
             ineq_constraint_counter += 1
 
             # Add thrust-limit (h = 0.5 * (thrust_limit**2 - (thrust-1)**2)
             gamma = 1
             G[:, 5, 0] = thrusts-1  # thrust_derivative
             G[:, 5, 1] = 0  # omega
-            G[:, 5, n_u+5] = -1  # for slack
-            h[:, 5] = gamma * 0.5 * (0.50**2 - (thrusts-1)**2)  # h
+            G[:, 5, n_u+2] = -1  # for slack
+            h[:, 5] = gamma * (0.5 * (0.50**2 - (thrusts-1)**2)) - (thrusts - 1) * action_batch[:, 0, 0]  # h
             ineq_constraint_counter += 1
 
             # Obstacles
-            gamma, gamma_2, gamma_3 = 1.5, 1.5, 1.5
-            for i in range(len(self.env.hazards)):
-                obs_loc = to_tensor(self.env.hazards[i]['location'], torch.FloatTensor, self.device)
-                rel_vecs = (ps - obs_loc)
-                G[:, ineq_constraint_counter, 0] = -(rel_vecs[:, 0] * -s_thetas + rel_vecs[:, 1] * c_thetas)
-                G[:, ineq_constraint_counter, 1] = -thrusts * (rel_vecs[:, 0] * -c_thetas + rel_vecs[:, 1] * -s_thetas)
-                G[:, ineq_constraint_counter, n_u + ineq_constraint_counter] = -1
-                h[:, ineq_constraint_counter] = 3*(vs[:, 0] * -s_thetas * thrusts + vs[:, 1] * (c_thetas * thrusts - 1))  # hddd
-                h[:, ineq_constraint_counter] += (gamma * gamma_2 * gamma_3) * (torch.sum(vs**2, dim=1) + rel_vecs[:, 0] * -s_thetas*thrusts + rel_vecs[:, 1]*(c_thetas * thrusts - 1))
-                h[:, ineq_constraint_counter] += (gamma_3 * (gamma_2 + gamma) + gamma_2 * gamma) * (rel_vecs[:, 0] * vs[:, 0] + rel_vecs[:, 1] * vs[:, 1])
-                h[:, ineq_constraint_counter] += 0.5 * gamma_3 * gamma_2 * gamma * (torch.sum(rel_vecs**2, dim=1) - self.env.hazards[i]['radius']**2 - (3*buffer)**2)
-                ineq_constraint_counter += 1
+            if not modular:
+                gamma, gamma_2, gamma_3 = 1.5, 1.5, 1.5
+                for i in range(hazards_locations.shape[0]):
+                    obs_loc = to_tensor(hazards_locations[i], torch.FloatTensor, self.device)
+                    rel_vecs = (ps - obs_loc)
+                    G[:, ineq_constraint_counter, 0] = -(rel_vecs[:, 0] * -s_thetas + rel_vecs[:, 1] * c_thetas)
+                    G[:, ineq_constraint_counter, 1] = -thrusts * (rel_vecs[:, 0] * -c_thetas + rel_vecs[:, 1] * -s_thetas)
+                    G[:, ineq_constraint_counter, n_u + 3] = -1
+                    h[:, ineq_constraint_counter] = 3*(vs[:, 0] * -s_thetas * thrusts + vs[:, 1] * (c_thetas * thrusts - 1))  # hddd
+                    h[:, ineq_constraint_counter] += (gamma * gamma_2 * gamma_3) * (torch.sum(vs**2, dim=1) + rel_vecs[:, 0] * -s_thetas*thrusts + rel_vecs[:, 1]*(c_thetas * thrusts - 1))
+                    h[:, ineq_constraint_counter] += (gamma_3 * (gamma_2 + gamma) + gamma_2 * gamma) * (rel_vecs[:, 0] * vs[:, 0] + rel_vecs[:, 1] * vs[:, 1])
+                    h[:, ineq_constraint_counter] += 0.5 * gamma_3 * gamma_2 * gamma * (torch.sum(rel_vecs**2, dim=1) - hazards_radius[i]**2 - (1.2*buffer)**2)
+                    h[:, ineq_constraint_counter] += (rel_vecs[:, 0] * -s_thetas + rel_vecs[:, 1] * c_thetas) * action_batch[:, 0, 0]
+                    h[:, ineq_constraint_counter] += (thrusts * (rel_vecs[:, 0] * -c_thetas + rel_vecs[:, 1] * -s_thetas)) * action_batch[:, 1, 0]
+                    ineq_constraint_counter += 1
             # Let's also build the cost matrices, vectors to minimize control effort and penalize slack
-            P = torch.diag(1e5 * torch.ones(n_u + num_cbfs)).repeat(batch_size, 1, 1).to(self.device)
+            P = torch.diag(1e5 * torch.ones(n_u + 4)).repeat(batch_size, 1, 1).to(self.device)
             P[:, 0, 0] = 1.5#0.3
             P[:, 1, 1] = 0.3#0.5
-            q = torch.zeros((batch_size, n_u + num_cbfs)).to(self.device)
+            q = torch.zeros((batch_size, n_u + 4)).to(self.device)
         else:
             raise Exception('Dynamics mode unknown!')
 

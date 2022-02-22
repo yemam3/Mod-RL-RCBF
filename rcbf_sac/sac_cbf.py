@@ -145,6 +145,8 @@ class RCBF_SAC(object):
             next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)
             if self.cbf_mode == 'full':
                 next_state_action = self.get_safe_action(next_state_batch, next_state_action, dynamics_model)
+            elif self.cbf_mode == 'mod':
+                next_state_action = self.get_safe_action(next_state_batch, next_state_action, dynamics_model, modular=True)
             qf1_next_target, qf2_next_target = self.critic_target(next_state_batch, next_state_action)
             min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
             next_q_value = reward_batch + mask_batch * self.gamma * (min_qf_next_target)
@@ -162,7 +164,8 @@ class RCBF_SAC(object):
         # Compute safe action using Differentiable CBF-QP
         if self.cbf_mode == 'full':
             pi = self.get_safe_action(state_batch, pi, dynamics_model)
-
+        elif self.cbf_mode == 'mod':
+            pi = self.get_safe_action(next_state_batch, next_state_action, dynamics_model, modular=True)
         qf1_pi, qf2_pi = self.critic(state_batch, pi)
         min_qf_pi = torch.min(qf1_pi, qf2_pi)
 
@@ -225,7 +228,7 @@ class RCBF_SAC(object):
         if self.compensator:
             self.compensator.load_weights(output)
 
-    def get_safe_action(self, obs_batch, action_batch, dynamics_model):
+    def get_safe_action(self, obs_batch, action_batch, dynamics_model, modular=False):
         """Given a nominal action, returns a minimally-altered safe action to take.
 
         Parameters
@@ -242,7 +245,7 @@ class RCBF_SAC(object):
         state_batch = dynamics_model.get_state(obs_batch)
         mean_pred_batch, sigma_pred_batch = dynamics_model.predict_disturbance(state_batch)
 
-        safe_action_batch = self.cbf_layer.get_safe_action(state_batch, action_batch, mean_pred_batch, sigma_pred_batch)
+        safe_action_batch = self.cbf_layer.get_safe_action(state_batch, action_batch, mean_pred_batch, sigma_pred_batch, modular=modular)
 
         return safe_action_batch
 
