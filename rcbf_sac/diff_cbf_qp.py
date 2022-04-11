@@ -284,12 +284,6 @@ class CBFQPLayer:
                             normal_vec = torch.tensor([segments[j][1], -segments[j][0]])
                             normal_vec /= torch.linalg.norm(normal_vec)
                             dhdps_[mask_] = (ps[mask_]-vertices[j]).matmul(normal_vec) * normal_vec.view((1,2)).repeat(torch.sum(mask_), 1)  # dot products (batch_size, 1)
-
-                            # projections_ = dot_products[mask_, None] * segments[j].tile(
-                            #     (torch.sum(mask_), 1)) + vertices[[j]]
-                            # dhdps_[mask_] = torch.bmm((ps[mask_] - projections_).view(int(torch.sum(mask_)), 2, 1).transpose(1, 2),
-                            #      torch.eye(2).reshape(1,2,2).repeat(int(torch.sum(mask_)), 1, 1) - segments[j].outer(segments[j]).view(1, 2, 2)).squeeze(1)
-
                         # Find indices to update (closest segment basically, worst case -> CBF boolean and is a min)
                         idxs_to_update = torch.nonzero(hs[:, i] - hs_ > 0)
                         # Update the actual hs to be used in the constraints
@@ -431,7 +425,7 @@ class CBFQPLayer:
                     h[:, ineq_constraint_counter] = 3*(vs[:, 0] * -s_thetas * thrusts + vs[:, 1] * (c_thetas * thrusts - 1))  # hddd
                     h[:, ineq_constraint_counter] += (gamma * gamma_2 * gamma_3) * (torch.sum(vs**2, dim=1) + rel_vecs[:, 0] * -s_thetas*thrusts + rel_vecs[:, 1]*(c_thetas * thrusts - 1))
                     h[:, ineq_constraint_counter] += (gamma_3 * (gamma_2 + gamma) + gamma_2 * gamma) * (rel_vecs[:, 0] * vs[:, 0] + rel_vecs[:, 1] * vs[:, 1])
-                    h[:, ineq_constraint_counter] += 0.5 * gamma_3 * gamma_2 * gamma * (torch.sum(rel_vecs**2, dim=1) - hazards_radius[i]**2 - (1.2*buffer)**2)
+                    h[:, ineq_constraint_counter] += 0.5 * gamma_3 * gamma_2 * gamma * (torch.sum(rel_vecs**2, dim=1) - (1.05*hazards_radius[i])**2 - (1.3*buffer)**2)
                     h[:, ineq_constraint_counter] += (rel_vecs[:, 0] * -s_thetas + rel_vecs[:, 1] * c_thetas) * action_batch[:, 0, 0]
                     h[:, ineq_constraint_counter] += (thrusts * (rel_vecs[:, 0] * -c_thetas + rel_vecs[:, 1] * -s_thetas)) * action_batch[:, 1, 0]
                     ineq_constraint_counter += 1

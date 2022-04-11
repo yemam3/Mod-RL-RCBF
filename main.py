@@ -17,6 +17,10 @@ from rcbf_sac.utils import prGreen, get_output_folder, prYellow
 
 def train(agent, env, dynamics_model, args, experiment=None):
 
+    # Load the weight if we're continuing training
+    if hasattr(args, 'load_agent'):
+        agent.load_weights(args.resume)
+
     # Memory
     memory = ReplayMemory(args.replay_size, args.seed)
     memory_model = ReplayMemory(args.replay_size, args.seed)
@@ -139,7 +143,7 @@ def train(agent, env, dynamics_model, args, experiment=None):
                 agent.update_parameters_compensator(compensator_rollouts)
 
         # [optional] save intermediate model
-        if i_episode % int(args.max_episodes / 10) == 0:
+        if i_episode > 0 and i_episode % 20 == 0:
             agent.save_model(args.output)
             dynamics_model.save_disturbance_models(args.output)
 
@@ -216,7 +220,6 @@ def test(agent, dynamics_model, args, visualize=True, debug=True):
         while not done:
             # basic operation, action ,reward, blablabla ...
             action = policy(observation)
-
             if visualize:
                 env.render(mode='human')
 
@@ -315,6 +318,7 @@ if __name__ == "__main__":
         args.resume = os.getcwd() + '/output/{}-run0'.format(args.env_name)
     elif args.resume.isnumeric():
         args.resume = os.getcwd() + '/output/{}-run{}'.format(args.env_name, args.resume)
+        args.load_agent = True
 
     if args.cuda:
         torch.cuda.set_device(args.device_num)
@@ -344,7 +348,7 @@ if __name__ == "__main__":
             experiment_name = 'comp_' if args.use_comp else ''
             experiment_name += args.cbf_mode + '_'
             experiment_name += 'MB_' if args.model_based else ''
-            experiment_name += str(random.randint(0, 1000))
+            experiment_name += args.output[args.output.index('run') + 3:]  # str(random.randint(0, 1000))
             prYellow('Logging experiment on comet.ml!')
             # Create an experiment with your api key
             experiment = Experiment(

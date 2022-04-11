@@ -125,7 +125,7 @@ class RCBF_SAC(object):
             state_batch, action_batch, reward_batch, next_state_batch, mask_batch, t_batch, next_t_batch = memory.sample(
                 batch_size=int(real_ratio * batch_size))
             state_batch_m, action_batch_m, reward_batch_m, next_state_batch_m, mask_batch_m, t_batch_m, next_t_batch_m = memory_model.sample(
-            batch_size = int((1 - real_ratio) * batch_size))
+                batch_size=int((1 - real_ratio) * batch_size))
             state_batch = np.vstack((state_batch, state_batch_m))
             action_batch = np.vstack((action_batch, action_batch_m))
             reward_batch = np.hstack((reward_batch, reward_batch_m))
@@ -143,10 +143,8 @@ class RCBF_SAC(object):
 
         with torch.no_grad():
             next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)
-            if self.cbf_mode == 'full':
-                next_state_action = self.get_safe_action(next_state_batch, next_state_action, dynamics_model)
-            elif self.cbf_mode == 'mod':
-                next_state_action = self.get_safe_action(next_state_batch, next_state_action, dynamics_model, modular=True)
+            if self.cbf_mode == 'full' or self.cbf_mode == 'mod':
+                next_state_action = self.get_safe_action(next_state_batch, next_state_action, dynamics_model, modular=self.cbf_mode == 'mod')
             qf1_next_target, qf2_next_target = self.critic_target(next_state_batch, next_state_action)
             min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
             next_q_value = reward_batch + mask_batch * self.gamma * (min_qf_next_target)
@@ -162,10 +160,8 @@ class RCBF_SAC(object):
         # Compute Actions and log probabilities
         pi, log_pi, _ = self.policy.sample(state_batch)
         # Compute safe action using Differentiable CBF-QP
-        if self.cbf_mode == 'full':
-            pi = self.get_safe_action(state_batch, pi, dynamics_model)
-        elif self.cbf_mode == 'mod':
-            pi = self.get_safe_action(next_state_batch, next_state_action, dynamics_model, modular=True)
+        if self.cbf_mode == 'full' or self.cbf_mode == 'mod':
+            pi = self.get_safe_action(state_batch, pi, dynamics_model, modular=self.cbf_mode == 'mod')
         qf1_pi, qf2_pi = self.critic(state_batch, pi)
         min_qf_pi = torch.min(qf1_pi, qf2_pi)
 
