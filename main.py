@@ -346,8 +346,8 @@ if __name__ == "__main__":
             import random
             project_name = 'rl-rcbf-' + args.comet_project_name.lower() + '-' + args.env_name.lower()
             experiment_name = 'comp_' if args.use_comp else ''
-            experiment_name += args.cbf_mode + '_'
-            experiment_name += 'MB_' if args.model_based else ''
+            experiment_name += args.cbf_mode
+            experiment_name += 'MB_' if args.model_based else '_'
             experiment_name += args.output[args.output.index('run') + 3:]  # str(random.randint(0, 1000))
             prYellow('Logging experiment on comet.ml!')
             # Create an experiment with your api key
