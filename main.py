@@ -297,7 +297,7 @@ if __name__ == "__main__":
     parser.add_argument('--gp_model_size', default=2000, type=int, help='gp')
     parser.add_argument('--gp_max_episodes', default=100, type=int, help='gp max train episodes.')
     parser.add_argument('--k_d', default=3.0, type=float)
-    parser.add_argument('--gamma_b', default=50, type=float)
+    parser.add_argument('--gamma_b', default=20, type=float)
     parser.add_argument('--l_p', default=0.03, type=float,
                         help="Look-ahead distance for unicycle dynamics output.")
     # Model Based RL
