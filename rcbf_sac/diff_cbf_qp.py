@@ -437,8 +437,9 @@ class CBFQPLayer:
 
         elif self.env.dynamics_mode == 'SimulatedCars':
 
+            num_cbfs = 2
             n_u = action_batch.shape[1]  # dimension of control inputs
-            num_constraints = self.num_cbfs + 2 * n_u  # each cbf is a constraint, and we need to add actuator constraints (n_u of them)
+            num_constraints = num_cbfs + 2 * n_u  # each cbf is a constraint, and we need to add actuator constraints (n_u of them)
             collision_radius = 3.5
 
             # Inequality constraints (G[u, eps] <= h)
@@ -519,8 +520,8 @@ class CBFQPLayer:
             h[:, 1] = Lffh15 - LfDfh15 + (gamma_b + gamma_b) * h15_dot + gamma_b * gamma_b * h15 + torch.bmm(Lgfh15, action_batch).squeeze()
             G[:, 0, 0] = -Lgfh13.squeeze()
             G[:, 1, 0] = -Lgfh15.squeeze()
-            G[:, :self.num_cbfs, n_u] = -2e2  # for slack
-            ineq_constraint_counter += self.num_cbfs
+            G[:, :num_cbfs, n_u] = -2e2  # for slack
+            ineq_constraint_counter += num_cbfs
 
             # Let's also build the cost matrices, vectors to minimize control effort and penalize slack
             P = torch.diag(torch.tensor([0.1, 1e1])).repeat(batch_size, 1, 1).to(self.device)
