@@ -200,7 +200,8 @@ def test(agent, dynamics_model, args, visualize=True, debug=True):
         from plot_utils import plot_value_function
         plot_value_function(build_env(args.env_name), agent, dynamics_model, save_path=model_path, safe_action=False)
 
-    result = []
+    episode_rewards = []
+    dones = []
 
     for episode in range(args.validate_episodes):
 
@@ -229,15 +230,17 @@ def test(agent, dynamics_model, args, visualize=True, debug=True):
             episode_reward += reward
             episode_steps += 1
 
-        result.append(episode_reward)
-        if debug: prYellow('[Evaluate] #Episode{}: episode_reward:{}, mean_reward:{}'.format(episode, episode_reward, np.mean(result)))
+        episode_rewards.append(episode_reward)
+        dones.append(done and env.episode_step < env.max_episode_steps)
+
+        if debug: prYellow('[Evaluate] #Episode{}: episode_reward:{}, mean_reward:{}, std_reward:{}, mean_completion:{}'.format(episode, episode_reward, np.mean(episode_rewards), np.std(episode_rewards), np.mean(dones)))
 
         env.close()
 
     if debug:
-        prYellow('[Evaluate]: mean_reward:{}'.format(np.mean(result)))
+        prYellow('[Evaluate]: mean_reward:{}, std_reward:{}, mean_completion:{}'.format(np.mean(episode_rewards), np.std(episode_rewards), np.mean(dones)))
 
-    return np.mean(result)
+    return np.mean(episode_rewards)
 
 
 if __name__ == "__main__":
