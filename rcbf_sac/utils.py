@@ -201,9 +201,7 @@ def get_polygon_normals(vertices):
            Array of size (n_v, 2) where each row i is the 2D center point of the segment from vertices_sorted[i] to vertices_sorted[i+1]
     """
 
-    print(vertices)
     sorted_vertices = sort_vertices_cclockwise(vertices)  # (n_v, 2)
-    print(sorted_vertices)
     diffs = np.diff(sorted_vertices, axis=0, append=sorted_vertices[[0]])  # (n_v, 2) at row i contains vector from v_i to v_i+1
 
     # Compute Normals (rotate each diff by -90 degrees)
@@ -212,7 +210,6 @@ def get_polygon_normals(vertices):
     normals = normals / np.linalg.norm(normals)
     # Compute Centers
     centers = (diffs + 2*vertices) / 2.0
-    print(centers.shape)
     return normals, centers
 
 

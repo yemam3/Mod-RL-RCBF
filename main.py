@@ -38,7 +38,7 @@ def train(agent, env, dynamics_model, args, experiment=None):
         episode_cost = 0
         episode_steps = 0
         done = False
-        obs = env.reset()
+        obs, info = env.reset()
 
         # Saving rollout here to train compensator
         if args.use_comp:
@@ -51,7 +51,6 @@ def train(agent, env, dynamics_model, args, experiment=None):
             if episode_steps % 10 == 0:
                 prYellow('Episode {} - step {} - eps_rew {} - eps_cost {}'.format(i_episode, episode_steps, episode_reward, episode_cost))
             state = dynamics_model.get_state(obs)
-
             # Generate Model rollouts
             if args.model_based and episode_steps % 5 == 0 and len(memory) > dynamics_model.max_history_count / 3:
                 memory_model = generate_model_rollouts(env, memory_model, memory, agent, dynamics_model,
@@ -94,29 +93,29 @@ def train(agent, env, dynamics_model, args, experiment=None):
             # Sample action from policy
             if args.use_comp:
                 action, comp_action, cbf_action = agent.select_action(obs, dynamics_model,
-                                                                      warmup=args.start_steps > total_numsteps, safe_action=args.cbf_mode!='off')
+                                                                      warmup=args.start_steps > total_numsteps, safe_action=args.cbf_mode!='off', cbf_info=info['cbf_info'])
             else:
                 action, cbf_action = agent.select_action(obs, dynamics_model,
-                                             warmup=args.start_steps > total_numsteps, safe_action=args.cbf_mode!='off')  # Sample action from policy
+                                             warmup=args.start_steps > total_numsteps, safe_action=args.cbf_mode!='off', cbf_info=info['cbf_info'])  # Sample action from policy
 
-            next_obs, reward, done, info = env.step(action)  # Step
-            if 'cost_exception' in info:
+            next_obs, reward, done, next_info = env.step(action)  # Step
+            if 'cost_exception' in next_info:
                 prYellow('Cost exception occured.')
             episode_steps += 1
             total_numsteps += 1
             episode_reward += reward
-            episode_cost += info.get('cost', 0)
+            episode_cost += next_info.get('cost', 0)
 
             # Ignore the "done" signal if it comes from hitting the time horizon.
             # (https://github.com/openai/spinningup/blob/master/spinup/algos/sac/sac.py)
             mask = 1 if episode_steps == env.max_episode_steps else float(not done)
 
             if args.use_comp:  # action is (rl_action + cbf_action + comp_action)
-                memory.push(obs, action-cbf_action-comp_action, reward, next_obs, mask, t=episode_steps * env.dt, next_t=(episode_steps+1) * env.dt)  # Append transition to memory
+                memory.push(obs, action-cbf_action-comp_action, reward, next_obs, mask, t=episode_steps * env.dt, next_t=(episode_steps+1) * env.dt, cbf_info=info.get('cbf_info', None), next_cbf_info=next_info.get('cbf_info', None))  # Append transition to memory
             elif args.cbf_mode == 'baseline':  # action is (rl_action + cbf_action)
-                memory.push(obs, action-cbf_action, reward, next_obs, mask, t=episode_steps * env.dt, next_t=(episode_steps+1) * env.dt)  # Append transition to memory
+                memory.push(obs, action-cbf_action, reward, next_obs, mask, t=episode_steps * env.dt, next_t=(episode_steps+1) * env.dt, cbf_info=info.get('cbf_info', None), next_cbf_info=next_info.get('cbf_info', None))  # Append transition to memory
             else:
-                memory.push(obs, action, reward, next_obs, mask, t=episode_steps * env.dt, next_t=(episode_steps+1) * env.dt)  # Append transition to memory
+                memory.push(obs, action, reward, next_obs, mask, t=episode_steps * env.dt, next_t=(episode_steps+1) * env.dt, cbf_info=info.get('cbf_info', None), next_cbf_info=next_info.get('cbf_info', None))  # Append transition to memory
 
             # Update state and store transition for GP model learning
             next_state = dynamics_model.get_state(next_obs)
@@ -131,6 +130,7 @@ def train(agent, env, dynamics_model, args, experiment=None):
                 episode_rollout['u_comp'] = np.vstack((episode_rollout['u_comp'], comp_action))
 
             obs = next_obs
+            info = next_info
 
         # Train compensator
         if args.use_comp and i_episode < args.comp_train_episodes:
@@ -162,16 +162,17 @@ def train(agent, env, dynamics_model, args, experiment=None):
             avg_cost = 0.
             episodes = 5
             for _ in range(episodes):
-                obs = env.reset()
+                obs, info = env.reset()
                 episode_reward = 0
                 episode_cost = 0
                 done = False
                 while not done:
                     action = agent.select_action(obs, dynamics_model, evaluate=True, safe_action=args.cbf_mode!='off')[0]  # Sample action from policy
-                    next_obs, reward, done, info = env.step(action)
+                    next_obs, reward, done, next_info = env.step(action)
                     episode_reward += reward
-                    episode_cost += info.get('cost', 0)
+                    episode_cost += next_info.get('cost', 0)
                     obs = next_obs
+                    info = next_info
 
                 avg_reward += episode_reward
                 avg_cost += episode_cost
@@ -210,7 +211,7 @@ def test(agent, dynamics_model, args, visualize=True, debug=True):
             agent.cbf_layer.env = env
 
         # reset at the start of episode
-        observation = env.reset()
+        observation, info = env.reset()
         episode_steps = 0
         episode_reward = 0.
 

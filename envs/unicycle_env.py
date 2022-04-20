@@ -164,7 +164,7 @@ class UnicycleEnv(gym.Env):
         # Re-initialize last goal dist
         self.last_goal_dist = self._goal_dist()
 
-        return self.get_obs()
+        return self.get_obs(), dict()
 
     def render(self, mode='human', close=False):
         """Render the environment to the screen
@@ -398,7 +398,7 @@ if __name__ == "__main__":
         omega = 5.0 * relative_theta
         return np.clip(np.array([v, omega]), env.action_space.low, env.action_space.high)
 
-    obs = env.reset()
+    obs, info = env.reset()
     done = False
     episode_reward = 0
     episode_step = 0

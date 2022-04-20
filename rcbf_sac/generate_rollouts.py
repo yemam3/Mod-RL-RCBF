@@ -6,7 +6,7 @@ from rcbf_sac.utils import euler_to_mat_2d, prCyan, prRed
 def generate_model_rollouts(env, memory_model, memory, agent, dynamics_model, k_horizon=1, batch_size=20, warmup=False):
 
     # Sample a batch from memory
-    obs_batch, action_batch, reward_batch, next_obs_batch, mask_batch, t_batch, next_t_batch = memory.sample(batch_size=batch_size)
+    obs_batch, action_batch, reward_batch, next_obs_batch, mask_batch, t_batch, next_t_batch, cbf_info, next_cbf_info = memory.sample(batch_size=batch_size)
 
     obs_batch_ = deepcopy(obs_batch)
     done_batch_ = [False for _ in range(batch_size)]

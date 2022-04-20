@@ -122,7 +122,7 @@ class SimulatedCarsEnv(gym.Env):
 
         self.episode_step = 0
 
-        return self._get_obs()
+        return self._get_obs(), dict()
 
 
     def render(self, mode='human', close=False):
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     dynamics_model = DynamicsModel(env, args)
     cbf_wrapper = CascadeCBFLayer(env, gamma_b=args.gamma_b, k_d=args.k_d)
 
-    obs = env.reset()
+    obs, info = env.reset()
     state = dynamics_model.get_state(obs)
     done = False
     episode_reward = 0

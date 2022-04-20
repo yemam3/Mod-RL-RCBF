@@ -39,7 +39,7 @@ class CBFQPLayer:
         self.action_dim = env.action_space.shape[0]
         # self.num_ineq_constraints = self.num_cbfs + 2 * self.action_dim
 
-    def get_safe_action(self, state_batch, action_batch, mean_pred_batch, sigma_batch, modular=False):
+    def get_safe_action(self, state_batch, action_batch, mean_pred_batch, sigma_batch, modular=False, cbf_info_batch=None):
         """
 
         Parameters
@@ -65,12 +65,14 @@ class CBFQPLayer:
             state_batch = state_batch.unsqueeze(0)
             mean_pred_batch = mean_pred_batch.unsqueeze(0)
             sigma_batch = sigma_batch.unsqueeze(0)
+            if cbf_info_batch is not None:
+                cbf_info_batch = cbf_info_batch.unsqueeze(0)
 
         if modular and self.env.dynamics_mode != 'Pvtol':
             final_action = torch.clamp(action_batch, self.u_min.repeat(action_batch.shape[0], 1), self.u_max.repeat(action_batch.shape[0], 1))
         else:
             start_time = time()
-            Ps, qs, Gs, hs = self.get_cbf_qp_constraints(state_batch, action_batch, mean_pred_batch, sigma_batch, modular=modular)
+            Ps, qs, Gs, hs = self.get_cbf_qp_constraints(state_batch, action_batch, mean_pred_batch, sigma_batch, modular=modular, cbf_info_batch=cbf_info_batch)
             build_qp_time = time()
             safe_action_batch = self.solve_qp(Ps, qs, Gs, hs)
             # prCyan('Time to get constraints = {} - Time to solve QP = {} - time per qp = {} - batch_size = {} - device = {}'.format(build_qp_time - start_time, time() - build_qp_time, (time() - build_qp_time) / safe_action_batch.shape[0], Ps.shape[0], Ps.device))
@@ -143,7 +145,7 @@ class CBFQPLayer:
             raise Exception('QP Failed to solve')
         return result
 
-    def get_cbf_qp_constraints(self, state_batch, action_batch, mean_pred_batch, sigma_pred_batch, modular=False):
+    def get_cbf_qp_constraints(self, state_batch, action_batch, mean_pred_batch, sigma_pred_batch, modular=False, cbf_info_batch=None):
         """Build up matrices required to solve qp
         Program specifically solves:
             minimize_{u,eps} 0.5 * u^T P u + q^T u
@@ -326,9 +328,12 @@ class CBFQPLayer:
             hazards_locations = self.env.hazard_locations
             hazards_radius = self.env.hazards_radius
 
+            is_safety_operator = (cbf_info_batch is not None) and (cbf_info_batch[0] is not None) and (not modular)
+
             num_cbfs = 4 + 1 + 1
             if not modular:  # 4 for the arena, 1 for thrust and 1 for angle limits, and 1 for each obstacle
                 num_cbfs += hazards_locations.shape[0]
+            num_cbfs += 2*is_safety_operator
             buffer = 0.3
 
             # Orientation
@@ -413,7 +418,30 @@ class CBFQPLayer:
             h[:, 5] = gamma * (0.5 * (0.50**2 - (thrusts-1)**2)) - (thrusts - 1) * action_batch[:, 0, 0]  # h
             ineq_constraint_counter += 1
 
-            # Obstacles
+            if is_safety_operator:
+                # Add Left Operator boundary CBF
+                gamma, gamma_2, gamma_3 = 1.5, 1.5, 1.5
+                G[:, 6, 0] = s_thetas  # thrust_derivative
+                G[:, 6, 1] = c_thetas * thrusts  # omega
+                G[:, 6, n_u] = -1  # for slack
+                h[:, 6] = (gamma + gamma_2 + gamma_3) * (-s_thetas * thrusts)
+                h[:, 6] += (gamma_3 * (gamma_2 + gamma) + gamma_2 * gamma) * (vs[:, 0])
+                h[:, 6] += gamma * gamma_2 * gamma_3 * (ps[:, 0] - (cbf_info_batch[:, 0] - self.env.operator_dist)) - (
+                            s_thetas * action_batch[:, 0, 0] + c_thetas * thrusts * action_batch[:, 1, 0])
+                ineq_constraint_counter += 1
+
+                # Add Right Operator boundary CBF
+                gamma, gamma_2, gamma_3 = 1.5, 1.5, 1.5
+                G[:, 7, 0] = -s_thetas  # thrust_derivative
+                G[:, 7, 1] = -c_thetas * thrusts  # omega
+                G[:, 7, n_u] = -1  # for slack
+                h[:, 7] = (gamma + gamma_2 + gamma_3) * (s_thetas * thrusts)
+                h[:, 7] += (gamma_3 * (gamma_2 + gamma) + gamma_2 * gamma) * (-vs[:, 0])
+                h[:, 7] += gamma * gamma_2 * gamma_3 * ((cbf_info_batch[:, 0] + self.env.operator_dist) - ps[:, 0]) + (
+                            s_thetas * action_batch[:, 0, 0] + c_thetas * thrusts * action_batch[:, 1, 0])
+                ineq_constraint_counter += 1
+
+            # Obstacles & Safety Operator
             if not modular:
                 gamma, gamma_2, gamma_3 = 1.5, 1.5, 1.5
                 for i in range(hazards_locations.shape[0]):
@@ -429,6 +457,7 @@ class CBFQPLayer:
                     h[:, ineq_constraint_counter] += (rel_vecs[:, 0] * -s_thetas + rel_vecs[:, 1] * c_thetas) * action_batch[:, 0, 0]
                     h[:, ineq_constraint_counter] += (thrusts * (rel_vecs[:, 0] * -c_thetas + rel_vecs[:, 1] * -s_thetas)) * action_batch[:, 1, 0]
                     ineq_constraint_counter += 1
+
             # Let's also build the cost matrices, vectors to minimize control effort and penalize slack
             P = torch.diag(1e5 * torch.ones(n_u + 4)).repeat(batch_size, 1, 1).to(self.device)
             P[:, 0, 0] = 1.5#0.3
@@ -609,7 +638,7 @@ if __name__ == "__main__":
     diff_cbf_layer = CBFQPLayer(env, args, args.gamma_b, args.k_d, args.l_p)
     dynamics_model = DynamicsModel(env, args)
 
-    obs = env.reset()
+    obs, info = env.reset()
     done = False
 
     ep_ret = 0
@@ -621,7 +650,7 @@ if __name__ == "__main__":
         if done:
             prGreen('Episode Return: %.3f \t Episode Cost: %.3f' % (ep_ret, ep_cost))
             ep_ret, ep_cost, ep_step = 0, 0, 0
-            obs = env.reset()
+            obs, info = env.reset()
 
         state = dynamics_model.get_state(obs)
         disturb_mean, disturb_std = dynamics_model.predict_disturbance(state)

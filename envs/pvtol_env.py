@@ -22,7 +22,7 @@ class PvtolEnv(gym.Env):
         self.bds = np.array([[-6., -3.], [6., 3.]])
 
         self.dt = 0.02
-        self.max_episode_steps = 1500
+        self.max_episode_steps = 2000
         self.reward_goal = 3.0
         self.goal_size = 0.3
         # Initialize Env
@@ -31,8 +31,6 @@ class PvtolEnv(gym.Env):
         self.initial_state = np.array([[-4.5, 2.0, 0.0, 0.0, 0.0, 1.0], [-4.5, -2.0, 0.0, 0.0, 0.0, 1.0], [4.5, 2.0, 0.0, 0.0, 0.0, 1.0]])  # x y theta v1 v2 thrust
         self.goal_pos = np.array([5.00, -1.5])
         self.rand_init = rand_init
-
-        self.reset()
 
         # Build Hazards
         self.obs_config = obs_config
@@ -46,12 +44,20 @@ class PvtolEnv(gym.Env):
                             {'radius': 0.45, 'location': np.array([-2.5, -2.2])},
                             {'radius': 0.4, 'location': np.array([5.25, 0.75])},
                             {'radius': 0.45, 'location': np.array([4.0, 0.0])}]
+            self.is_safety_operator = True
+            self.safety_operator = np.array([])  # x-position
         elif obs_config.lower() == 'none':
             self.hazards = []
+            self.is_safety_operator = False
+            self.safety_operator = np.array([])
         else:
             n_hazards = 8
             hazard_radius = 0.4
+            self.is_safety_operator = np.random.rand() > 0.5
             self.get_random_hazard_locations(n_hazards, hazard_radius)
+        self.operator_dist = 0.6  # max distance PVTOL can be from the safety operator (if present)
+
+        self.reset()
 
         # Process Hazards for cost checking
         self.hazard_locations = np.array([hazard['location'] for hazard in self.hazards])
@@ -105,9 +111,14 @@ class PvtolEnv(gym.Env):
         self.state += self.dt * (f_x + g_x @ action)
         # Add disturbance
         # self.state -= self.dt * 0.1 * self.get_g(self.state) @ np.array([np.cos(self.state[2]),  0])  #* np.random.multivariate_normal(self.disturb_mean, self.disturb_covar, 1).squeeze()
-        self.episode_step += 1
 
         info = dict()
+
+        # Update Position of Operator
+        if self.is_safety_operator:
+            self.safety_operator[0] += max(min(0.07, 0.07 * (self.state[0] - self.safety_operator[0])), -0.07) + 0.015 * (2*np.random.rand()-1)
+            info['cbf_info'] = self.safety_operator
+        self.episode_step += 1
 
         dist_goal = self._goal_dist()
         reward = (self.last_goal_dist - dist_goal)  # -1e-3 * dist_goal
@@ -162,10 +173,18 @@ class PvtolEnv(gym.Env):
         else:
             self.state = np.copy(self.initial_state[0])
 
+        if self.is_safety_operator:
+            self.safety_operator = np.array([self.state[0]])  # x-position, x-velocity
+
         # Re-initialize last goal dist
         self.last_goal_dist = self._goal_dist()
 
-        return self.get_obs()
+        info = dict()
+        # Update Position of Operator
+        if self.is_safety_operator:
+            info['cbf_info'] = self.safety_operator
+
+        return self.get_obs(), info
 
     def render(self, mode='human', close=False):
         """Render the environment to the screen
@@ -222,6 +241,20 @@ class PvtolEnv(gym.Env):
             self.robot_orientation.set_color(0, 0, 0)
             self.viewer.add_geom(self.robot_orientation)
 
+            # Make Safety Operator
+            if self.is_safety_operator:
+                self.safety_operator_fh = pyglet_rendering.make_polygon(to_pixel(np.array([[-0.1, -0.3], [-0.1, 0.3], [0.1, 0.3], [0.1, -0.3]])), filled=True)
+                self.safety_operator_fh.set_color(0.7, 0.7, 0.7)
+                self.safety_operator_trans = pyglet_rendering.Transform(translation=(to_pixel(self.safety_operator[0], shift=screen_width/2), to_pixel(-2.7, shift=screen_height/2)))
+                self.safety_operator_fh.add_attr(self.safety_operator_trans)
+                self.viewer.add_geom(self.safety_operator_fh)
+                self.safety_operator_right = pyglet_rendering.Line(start=(to_pixel(-self.operator_dist), to_pixel(self.bds[0][1]-2.6, shift=screen_height/2)), end=(to_pixel(-self.operator_dist), to_pixel(self.bds[1][1]-2.6, shift=screen_height/2)))
+                self.safety_operator_left = pyglet_rendering.Line(start=(to_pixel(self.operator_dist), to_pixel(self.bds[0][1]-2.6, shift=screen_height/2)), end=(to_pixel(self.operator_dist), to_pixel(self.bds[1][1]-2.6, shift=screen_height/2)))
+                self.safety_operator_right.add_attr(self.safety_operator_trans)
+                self.safety_operator_left.add_attr(self.safety_operator_trans)
+                self.viewer.add_geom(self.safety_operator_right)
+                self.viewer.add_geom(self.safety_operator_left)
+
             # Draw Boundaries
             bds = 1.5 * 37.795 * self.bds
             bds[:, 0] += screen_width/2
@@ -234,6 +267,8 @@ class PvtolEnv(gym.Env):
 
         self.robot_trans.set_translation(to_pixel(self.state[0], shift=screen_width/2), to_pixel(self.state[1], shift=screen_height/2))
         self.robot_trans.set_rotation(self.state[2])
+        if self.is_safety_operator:
+            self.safety_operator_trans.set_translation(to_pixel(self.safety_operator[0], shift=screen_width/2), to_pixel(-2.7, shift=screen_height/2))
 
         return self.viewer.render(return_rgb_array=mode == "rgb_array")
 
@@ -346,11 +381,11 @@ if __name__ == "__main__":
     import os
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
-    env = PvtolEnv()
+    env = PvtolEnv(obs_config='random')
     dynamics_model = DynamicsModel(env, args)
     cbf_wrapper = CBFQPLayer(env, args, gamma_b=args.gamma_b, k_d=args.k_d)
 
-    obs = env.reset()
+    obs, info = env.reset()
     done = False
     episode_reward = 0
     episode_step = 0
@@ -366,7 +401,8 @@ if __name__ == "__main__":
         random_action = to_tensor(random_action, torch.FloatTensor, 'cpu')
         disturb_mean = to_tensor(disturb_mean, torch.FloatTensor, 'cpu')
         disturb_std = to_tensor(disturb_std, torch.FloatTensor, 'cpu')
-        random_action = to_numpy(cbf_wrapper.get_safe_action(state, random_action, disturb_mean, disturb_std))
+        cbf_info = to_tensor(info.get('cbf_info', None), torch.FloatTensor, 'cpu')
+        random_action = to_numpy(cbf_wrapper.get_safe_action(state, random_action, disturb_mean, disturb_std, cbf_info_batch=cbf_info))
         obs, reward, done, info = env.step(random_action)
         env.render()
         plt.pause(0.01)

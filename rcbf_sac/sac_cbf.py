@@ -60,13 +60,16 @@ class RCBF_SAC(object):
         else:
             self.compensator = None
 
-    def select_action(self, state, dynamics_model, evaluate=False, warmup=False, safe_action=True):
+    def select_action(self, state, dynamics_model, evaluate=False, warmup=False, safe_action=True, cbf_info=None):
 
         state = to_tensor(state, torch.FloatTensor, self.device)
+        if cbf_info:
+            cbf_info = to_tensor(cbf_info, torch.FloatTensor, self.device)
         expand_dim = len(state.shape) == 1
         if expand_dim:
             state = state.unsqueeze(0)
-
+            if cbf_info:
+                cbf_info = cbf_info.unsqueeze(0)
         if warmup:
             batch_size = state.shape[0]
             action = torch.zeros((batch_size, self.action_space.shape[0])).to(self.device)
@@ -83,7 +86,7 @@ class RCBF_SAC(object):
             action += action_comp
 
         if safe_action:
-            final_action = self.get_safe_action(state, action, dynamics_model)
+            final_action = self.get_safe_action(state, action, dynamics_model, cbf_info_batch=cbf_info)
             cbf_action = final_action - action
         else:
             final_action = action
@@ -122,17 +125,19 @@ class RCBF_SAC(object):
 
         # Model-based vs regular RL
         if memory_model and real_ratio:
-            state_batch, action_batch, reward_batch, next_state_batch, mask_batch, t_batch, next_t_batch = memory.sample(
+            state_batch, action_batch, reward_batch, next_state_batch, mask_batch, t_batch, next_t_batch, cbf_info_batch, next_cbf_info_batch = memory.sample(
                 batch_size=int(real_ratio * batch_size))
-            state_batch_m, action_batch_m, reward_batch_m, next_state_batch_m, mask_batch_m, t_batch_m, next_t_batch_m = memory_model.sample(
+            state_batch_m, action_batch_m, reward_batch_m, next_state_batch_m, mask_batch_m, t_batch_m, next_t_batch_m, cbf_info_batch_m, next_cbf_info_batch_m = memory_model.sample(
                 batch_size=int((1 - real_ratio) * batch_size))
             state_batch = np.vstack((state_batch, state_batch_m))
             action_batch = np.vstack((action_batch, action_batch_m))
             reward_batch = np.hstack((reward_batch, reward_batch_m))
             next_state_batch = np.vstack((next_state_batch, next_state_batch_m))
             mask_batch = np.hstack((mask_batch, mask_batch_m))
+            cbf_info_batch = np.hstack((cbf_info_batch, cbf_info_batch_m))
+            next_cbf_info_batch = np.hstack((next_cbf_info_batch, next_cbf_info_batch_m))
         else:
-            state_batch, action_batch, reward_batch, next_state_batch, mask_batch, t_batch, next_t_batch = memory.sample(batch_size=batch_size)
+            state_batch, action_batch, reward_batch, next_state_batch, mask_batch, t_batch, next_t_batch, cbf_info_batch, next_cbf_info_batch = memory.sample(batch_size=batch_size)
 
 
         state_batch = torch.FloatTensor(state_batch).to(self.device)
@@ -140,11 +145,14 @@ class RCBF_SAC(object):
         action_batch = torch.FloatTensor(action_batch).to(self.device)
         reward_batch = torch.FloatTensor(reward_batch).to(self.device).unsqueeze(1)
         mask_batch = torch.FloatTensor(mask_batch).to(self.device).unsqueeze(1)
+        print('cbf_info_batch = {} '.format(cbf_info_batch.shape))
+        cbf_info_batch = torch.FloatTensor(cbf_info_batch).to(self.device)
+        next_cbf_info_batch = torch.FloatTensor(next_cbf_info_batch).to(self.device)
 
         with torch.no_grad():
             next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)
             if self.cbf_mode == 'full' or self.cbf_mode == 'mod':
-                next_state_action = self.get_safe_action(next_state_batch, next_state_action, dynamics_model, modular=self.cbf_mode == 'mod')
+                next_state_action = self.get_safe_action(next_state_batch, next_state_action, dynamics_model, modular=self.cbf_mode == 'mod', cbf_info_batch=next_cbf_info_batch)
             qf1_next_target, qf2_next_target = self.critic_target(next_state_batch, next_state_action)
             min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
             next_q_value = reward_batch + mask_batch * self.gamma * (min_qf_next_target)
@@ -161,7 +169,7 @@ class RCBF_SAC(object):
         pi, log_pi, _ = self.policy.sample(state_batch)
         # Compute safe action using Differentiable CBF-QP
         if self.cbf_mode == 'full' or self.cbf_mode == 'mod':
-            pi = self.get_safe_action(state_batch, pi, dynamics_model, modular=self.cbf_mode == 'mod')
+            pi = self.get_safe_action(state_batch, pi, dynamics_model, modular=self.cbf_mode == 'mod', cbf_info_batch=cbf_info_batch)
         qf1_pi, qf2_pi = self.critic(state_batch, pi)
         min_qf_pi = torch.min(qf1_pi, qf2_pi)
 
@@ -224,7 +232,7 @@ class RCBF_SAC(object):
         if self.compensator:
             self.compensator.load_weights(output)
 
-    def get_safe_action(self, obs_batch, action_batch, dynamics_model, modular=False):
+    def get_safe_action(self, obs_batch, action_batch, dynamics_model, modular=False, cbf_info_batch=None):
         """Given a nominal action, returns a minimally-altered safe action to take.
 
         Parameters
@@ -241,7 +249,7 @@ class RCBF_SAC(object):
         state_batch = dynamics_model.get_state(obs_batch)
         mean_pred_batch, sigma_pred_batch = dynamics_model.predict_disturbance(state_batch)
 
-        safe_action_batch = self.cbf_layer.get_safe_action(state_batch, action_batch, mean_pred_batch, sigma_pred_batch, modular=modular)
+        safe_action_batch = self.cbf_layer.get_safe_action(state_batch, action_batch, mean_pred_batch, sigma_pred_batch, modular=modular, cbf_info_batch=cbf_info_batch)
 
         return safe_action_batch
 
