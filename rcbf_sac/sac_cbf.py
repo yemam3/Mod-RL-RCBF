@@ -145,7 +145,6 @@ class RCBF_SAC(object):
         action_batch = torch.FloatTensor(action_batch).to(self.device)
         reward_batch = torch.FloatTensor(reward_batch).to(self.device).unsqueeze(1)
         mask_batch = torch.FloatTensor(mask_batch).to(self.device).unsqueeze(1)
-        print('cbf_info_batch = {} '.format(cbf_info_batch.shape))
         cbf_info_batch = torch.FloatTensor(cbf_info_batch).to(self.device)
         next_cbf_info_batch = torch.FloatTensor(next_cbf_info_batch).to(self.device)
 
