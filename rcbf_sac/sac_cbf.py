@@ -134,8 +134,9 @@ class RCBF_SAC(object):
             reward_batch = np.hstack((reward_batch, reward_batch_m))
             next_state_batch = np.vstack((next_state_batch, next_state_batch_m))
             mask_batch = np.hstack((mask_batch, mask_batch_m))
-            cbf_info_batch = np.hstack((cbf_info_batch, cbf_info_batch_m))
-            next_cbf_info_batch = np.hstack((next_cbf_info_batch, next_cbf_info_batch_m))
+            if cbf_info_batch is not None and cbf_info_batch[0] is not None:
+                cbf_info_batch = np.hstack((cbf_info_batch, cbf_info_batch_m))
+                next_cbf_info_batch = np.hstack((next_cbf_info_batch, next_cbf_info_batch_m))
         else:
             state_batch, action_batch, reward_batch, next_state_batch, mask_batch, t_batch, next_t_batch, cbf_info_batch, next_cbf_info_batch = memory.sample(batch_size=batch_size)
 
@@ -145,8 +146,9 @@ class RCBF_SAC(object):
         action_batch = torch.FloatTensor(action_batch).to(self.device)
         reward_batch = torch.FloatTensor(reward_batch).to(self.device).unsqueeze(1)
         mask_batch = torch.FloatTensor(mask_batch).to(self.device).unsqueeze(1)
-        cbf_info_batch = torch.FloatTensor(cbf_info_batch).to(self.device)
-        next_cbf_info_batch = torch.FloatTensor(next_cbf_info_batch).to(self.device)
+        if cbf_info_batch is not None and cbf_info_batch[0] is not None:
+            cbf_info_batch = torch.FloatTensor(cbf_info_batch).to(self.device)
+            next_cbf_info_batch = torch.FloatTensor(next_cbf_info_batch).to(self.device)
 
         with torch.no_grad():
             next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)

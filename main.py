@@ -93,10 +93,10 @@ def train(agent, env, dynamics_model, args, experiment=None):
             # Sample action from policy
             if args.use_comp:
                 action, comp_action, cbf_action = agent.select_action(obs, dynamics_model,
-                                                                      warmup=args.start_steps > total_numsteps, safe_action=args.cbf_mode!='off', cbf_info=info['cbf_info'])
+                                                                      warmup=args.start_steps > total_numsteps, safe_action=args.cbf_mode!='off', cbf_info=info.get('cbf_info', None))
             else:
                 action, cbf_action = agent.select_action(obs, dynamics_model,
-                                             warmup=args.start_steps > total_numsteps, safe_action=args.cbf_mode!='off', cbf_info=info['cbf_info'])  # Sample action from policy
+                                             warmup=args.start_steps > total_numsteps, safe_action=args.cbf_mode!='off', cbf_info=info.get('cbf_info', None))  # Sample action from policy
 
             next_obs, reward, done, next_info = env.step(action)  # Step
             if 'cost_exception' in next_info:
