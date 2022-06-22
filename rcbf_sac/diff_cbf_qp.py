@@ -316,22 +316,13 @@ class CBFQPLayer:
 
         elif self.env.dynamics_mode == 'Pvtol':
 
-            # # Get nearby obstacles (if batch_size is 1) TODO: Generalize this to any batch_size
-            # if batch_size == 1:
-            #     nearby_hazards = np.argwhere(np.sum((to_numpy(state_batch.squeeze()[:2]) - self.env.hazard_locations) ** 2, axis=1) < (6*self.env.hazards_radius) ** 2).squeeze(-1)
-            #     hazards_locations = self.env.hazard_locations[nearby_hazards]
-            #     hazards_radius = self.env.hazards_radius[nearby_hazards]
-            # else:
-            #     hazards_locations = self.env.hazard_locations
-            #     hazards_radius = self.env.hazards_radius
-
             hazards_locations = self.env.hazard_locations
             hazards_radius = self.env.hazards_radius
 
             is_safety_operator = (cbf_info_batch is not None) and (cbf_info_batch[0] is not None) and (not modular)
 
-            num_cbfs = 4 + 1 + 1
-            if not modular:  # 4 for the arena, 1 for thrust and 1 for angle limits, and 1 for each obstacle
+            num_cbfs = 4 + 1 + 1  # 4 for the arena, 1 for thrust and 1 for angle limits, and 1 for each obstacle
+            if not modular:
                 num_cbfs += hazards_locations.shape[0]
             num_cbfs += 2*is_safety_operator
             buffer = 0.3
