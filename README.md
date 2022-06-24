@@ -1,6 +1,6 @@
 # SAC-RCBF 
 
-Repository containing the code for the paper "Safe  Model-Based  Reinforcement  Learning using Robust Control Barrier Functions". Specifically, an implementation of SAC + Robust Control Barrier Functions (RCBFs) for safe reinforcement learning in two custom environments.
+Repository containing the code for the paper ["Safe Reinforcement Learning using Robust Control Barrier Functions"](https://arxiv.org/abs/2110.05415). Specifically, an implementation of SAC + Robust Control Barrier Functions (RCBFs) for safe reinforcement learning in multiple custom environments.
 
 While exploring, an RL agent can take actions that lead the system to unsafe states. Here, we use a differentiable RCBF safety layer that minimially alters (in the least-squares sense) the actions taken by the RL agent to ensure the safety of the agent.
 
@@ -47,26 +47,50 @@ In addition, the approach is compared against two other frameworks (implemented 
 
 ## Running the Experiments
 
-The two environments are `Unicycle` and `SimulatedCars`. `Unicycle` involves a unicycle robot tasked with reaching a desired location while avoiding obstacles and `SimulatedCars` involves a chain of cars driving in a lane, the RL agent controls the 4th car and must try minimzing control effort while avoiding colliding with the other cars.
+There are two sets of experiments in the paper. The first set evaluates the sample efficiency of SAC-RCBF in two custom environments. The second set evaluates the efficacy of the proposed Modular SAC-RCBF approach at learning the reward-driven task independently from the safety constraints, which results in better transfer performance.
 
-### `Unicycle` Env: 
+### Experiment 1.1 (Sample Efficiency - Unicycle Env)
+* Baseline:
+`python main.py --cuda --env Unicycle --cbf_mode baseline --max_episodes 200 --seed 12345`
+* Baseline w/ comp:
+`python main.py --env Unicycle --cuda --cbf_mode baseline --use_comp True --max_episodes 200 --seed 12345`
+* MF SAC-RCBF:
+`python main.py --cuda --env Unicycle --cbf_mode full --max_episodes 200 --seed 12345`
+* MB SAC-RCBF:
+`python main.py --cuda --env Unicycle --model_based --updates_per_step 2 --batch_size 512 --rollout_batch_size 5 --real_ratio 0.3 --gp_max_episodes 70 --cbf_mode full --max_episodes 200 --seed 12345`
 
-* Running the proposed approach: 
-`python main.py --env SimulatedCars --gamma_b 20 --max_episodes 400 --cuda --updates_per_step 2 --batch_size 512  --seed 12345 --model_based`
+### Experiment 1.2 (Sample Efficiency - Simulated Cars Env)
+* Baseline:
+`python main.py --cuda --env SimulatedCars --max_episodes 300 --cbf_mode baseline --seed 12345`
+* Baseline w/ comp:
+`python main.py --env SimulatedCars --cuda --cbf_mode baseline --use_comp True --max_episodes 300 --seed 12345`
+* MF SAC-RCBF:
+`python main.py --cuda --env SimulatedCars --max_episodes 300 --cbf_mode full --seed 12345`
+* MB SAC-RCBF:
+`python main.py --cuda --env SimulatedCars --model_based --updates_per_step 2 --batch_size 512 --rollout_batch_size 5 --real_ratio 0.3 --max_episodes 300 --cbf_mode full --gp_max_episodes 70 --seed 12345`
 
-* Running the baseline:
-`python main.py --env SimulatedCars --gamma_b 20 --max_episodes 400 --cuda --updates_per_step 1 --batch_size 256  --seed 12345 --no_diff_qp`
+### Experiment 2.1 (Modular Learning - Unicycle)
+* SAC w/o obstacles (upper performance upper bound):
+`python main.py --cuda --env Unicycle --cbf_mode off --rand_init True --obs_config none --seed 12345`
+* Modular SAC-RCBF:
+`python main.py --cuda --env Unicycle --cbf_mode mod --rand_init True --seed 12345`
+* SAC-RCBF:
+`python main.py --cuda --env Unicycle --cbf_mode full --rand_init True --seed 12345`
+* Baseline:
+`python main.py --cuda --env Unicycle --cbf_mode baseline --rand_init True --seed 12345`
 
-* Running the modified approach from "End-to-End Safe Reinforcement Learning through Barrier Functions for Safety-Critical Continuous Control Tasks": 
-`python main.py --env SimulatedCars --gamma_b 20 --max_episodes 400 --cuda --updates_per_step 1 --batch_size 256   --seed 12345 --no_diff_qp --use_comp True`
+* Test zero-shot transfer:
+`python main.py --mode test --validate_episodes 200 --resume [run #] --cbf_mode baseline --env Unicycle --obs_config random --seed 12345`
 
-### `SimulatedCars` Env:
+### Experiment 2.2 (Modular Learning - Pvtol)
+* SAC w/o obstacles/safety operator (upper performance upper bound):
+`python main.py --cuda --env Pvtol --rand_init True --cbf_mode baseline --rand_init True --obs_config none --seed 12345`
+* Modular SAC-RCBF:
+`python main.py --cuda --env Pvtol --rand_init True --cbf_mode mod --seed 12345`
+* SAC-RCBF:
+`python main.py --cuda --env Pvtol --rand_init True --cbf_mode full --seed 12345`
+* Baseline:
+`python main.py --cuda --env Pvtol --rand_init True --cbf_mode baseline --seed 12345`
 
-* Running the proposed approach: 
-`python main.py --env Unicycle --gamma_b 50 --max_episodes 200 --cuda --updates_per_step 2 --batch_size 512  --seed 12345 --model_based`
-
-* Running the baseline:
-`python main.py --env Unicycle --gamma_b 50 --max_episodes 200 --cuda --updates_per_step 1 --batch_size 256  --seed 12345 --no_diff_qp`
-
-* Running the modified approach from "End-to-End Safe Reinforcement Learning through Barrier Functions for Safety-Critical Continuous Control Tasks": 
-`python main.py --env Unicycle --gamma_b 50 --max_episodes 200 --cuda --updates_per_step 1 --batch_size 256   --seed 12345 --no_diff_qp --use_comp True`
+* Test zero-shot transfer: 
+`python main.py --mode test --validate_episodes 200 --resume [run #] --cbf_mode baseline --env Pvtol --obs_config random --seed 12345`
