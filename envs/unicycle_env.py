@@ -42,6 +42,7 @@ class UnicycleEnv(gym.Env):
         self.disturb_covar = np.diag([0.005, 0.005, 0.05]) * 20
 
         # Build Hazards
+        self.obs_config = obs_config
         self.hazards = []
         if obs_config == 'default':  # default
             self.hazards.append({'type': 'circle', 'radius': 0.6, 'location': 1.5*np.array([0., 0.])})
@@ -124,12 +125,12 @@ class UnicycleEnv(gym.Env):
         else:
             done = self.episode_step >= self.max_episode_steps
 
-        # Include constraint cost in reward
-        # if np.any(np.sum((self.state[:2] - self.hazards_locations)**2, axis=1) < self.hazards_radius**2):
-        #     if 'cost' in info:
-        #         info['cost'] += 0.1
-        #     else:
-        #         info['cost'] = 0.1
+        # Include constraint cost in reward (only during training, i.e. obs_config=='default')
+        if self.obs_config == 'default':
+            info['cost'] = 0
+            for hazard in self.hazards:
+                if hazard['type'] == 'circle': # They should all be circles if 'default'
+                    info['cost'] += 0.1 * (np.sum((self.state[:2] - hazard['location']) ** 2) < hazard['radius'] ** 2)
         return self.state, reward, done, info
 
     def goal_met(self):
