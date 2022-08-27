@@ -10,9 +10,6 @@ While exploring, an RL agent can take actions that lead the system to unsafe sta
 
 In this work, we focus on RCBFs that are formulated with respect to differential inclusions of the following form:
 
-<p align="center">
-<img src="https://github.com/yemam3/SAC-RCBF/raw/master/figures/diff_inc.png" width=30% height=30%>
-</p>
 $$\dot{x} \in f(x) + g(x)u + D(x)$$
 
 Here `D(x)` is a disturbance set unkown apriori to the robot, which we learn online during traing via Gaussian Processes (GPs). The underlying library is GPyTorch. 
