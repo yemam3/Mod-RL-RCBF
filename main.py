@@ -2,6 +2,7 @@
 from comet_ml import Experiment
 
 import argparse
+import time
 import torch
 import numpy as np
 
@@ -214,14 +215,18 @@ def test(agent, dynamics_model, args, visualize=True, debug=True):
         observation, info = env.reset()
         episode_steps = 0
         episode_reward = 0.
-
         assert observation is not None
+
+        # Time policy
+        policy_timings = []
 
         # start episode
         done = False
         while not done:
             # basic operation, action ,reward, blablabla ...
+            policy_start_time = time.time()
             action = policy(observation)
+            policy_timings.append(time.time() - policy_start_time)
             if visualize:
                 env.render(mode='human')
 
@@ -234,7 +239,7 @@ def test(agent, dynamics_model, args, visualize=True, debug=True):
         episode_rewards.append(episode_reward)
         dones.append(done and env.episode_step < env.max_episode_steps)
 
-        if debug: prYellow('[Evaluate] #Episode{}: episode_reward:{}, mean_reward:{}, std_reward:{}, mean_completion:{}'.format(episode, episode_reward, np.mean(episode_rewards), np.std(episode_rewards), np.mean(dones)))
+        if debug: prYellow('[Evaluate] #Episode{}: episode_reward:{}, mean_reward:{}, std_reward:{}, mean_completion:{}, policy_mean_wct={}'.format(episode, episode_reward, np.mean(episode_rewards), np.std(episode_rewards), np.mean(dones), np.mean(policy_timings)))
 
         env.close()
 
