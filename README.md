@@ -45,46 +45,82 @@ There are two sets of experiments in the paper. The first set evaluates the samp
 
 ### Experiment 1.1 (Sample Efficiency - Unicycle Env)
 * Baseline:
-`python main.py --cuda --env Unicycle --cbf_mode baseline --max_episodes 200 --seed 12345`
+```
+python main.py --cuda --env Unicycle --cbf_mode baseline --max_episodes 200 --seed 12345
+```
 * Baseline w/ comp:
-`python main.py --env Unicycle --cuda --cbf_mode baseline --use_comp True --max_episodes 200 --seed 12345`
+```
+python main.py --env Unicycle --cuda --cbf_mode baseline --use_comp True --max_episodes 200 --seed 12345
+```
 * MF SAC-RCBF:
-`python main.py --cuda --env Unicycle --cbf_mode full --max_episodes 200 --seed 12345`
+```
+python main.py --cuda --env Unicycle --cbf_mode full --max_episodes 200 --seed 12345
+```
 * MB SAC-RCBF:
-`python main.py --cuda --env Unicycle --model_based --updates_per_step 2 --batch_size 512 --rollout_batch_size 5 --real_ratio 0.3 --gp_max_episodes 70 --cbf_mode full --max_episodes 200 --seed 12345`
+```
+python main.py --cuda --env Unicycle --model_based --updates_per_step 2 --batch_size 512 --rollout_batch_size 5 --real_ratio 0.3 --gp_max_episodes 70 --cbf_mode full --max_episodes 200 --seed 12345
+```
 
 ### Experiment 1.2 (Sample Efficiency - Simulated Cars Env)
 * Baseline:
-`python main.py --cuda --env SimulatedCars --max_episodes 300 --cbf_mode baseline --seed 12345`
+```
+python main.py --cuda --env SimulatedCars --max_episodes 300 --cbf_mode baseline --seed 12345
+```
 * Baseline w/ comp:
-`python main.py --env SimulatedCars --cuda --cbf_mode baseline --use_comp True --max_episodes 300 --seed 12345`
+```
+python main.py --env SimulatedCars --cuda --cbf_mode baseline --use_comp True --max_episodes 300 --seed 12345
+```
 * MF SAC-RCBF:
-`python main.py --cuda --env SimulatedCars --max_episodes 300 --cbf_mode full --seed 12345`
+```
+python main.py --cuda --env SimulatedCars --max_episodes 300 --cbf_mode full --seed 12345
+```
 * MB SAC-RCBF:
-`python main.py --cuda --env SimulatedCars --model_based --updates_per_step 2 --batch_size 512 --rollout_batch_size 5 --real_ratio 0.3 --max_episodes 300 --cbf_mode full --gp_max_episodes 70 --seed 12345`
+```
+python main.py --cuda --env SimulatedCars --model_based --updates_per_step 2 --batch_size 512 --rollout_batch_size 5 --real_ratio 0.3 --max_episodes 300 --cbf_mode full --gp_max_episodes 70 --seed 12345
+```
 
 ### Experiment 2.1 (Modular Learning - Unicycle)
 * SAC w/o obstacles (upper performance upper bound):
-`python main.py --cuda --env Unicycle --cbf_mode off --rand_init True --obs_config none --seed 12345`
+```
+python main.py --cuda --env Unicycle --cbf_mode off --rand_init True --obs_config none --seed 12345
+```
 * Modular SAC-RCBF:
-`python main.py --cuda --env Unicycle --cbf_mode mod --rand_init True --seed 12345`
+```
+python main.py --cuda --env Unicycle --cbf_mode mod --rand_init True --seed 12345
+```
 * SAC-RCBF:
-`python main.py --cuda --env Unicycle --cbf_mode full --rand_init True --seed 12345`
+```
+python main.py --cuda --env Unicycle --cbf_mode full --rand_init True --seed 12345
+```
 * Baseline:
-`python main.py --cuda --env Unicycle --cbf_mode baseline --rand_init True --seed 12345`
+```
+python main.py --cuda --env Unicycle --cbf_mode baseline --rand_init True --seed 12345
+```
 
 * Test zero-shot transfer:
-`python main.py --mode test --validate_episodes 200 --resume [run #] --cbf_mode baseline --env Unicycle --obs_config random --seed 12345`
+```
+python main.py --mode test --validate_episodes 200 --resume [run #] --cbf_mode baseline --env Unicycle --obs_config random --seed 12345
+```
 
 ### Experiment 2.2 (Modular Learning - Pvtol)
 * SAC w/o obstacles/safety operator (upper performance upper bound):
-`python main.py --cuda --env Pvtol --rand_init True --cbf_mode baseline --rand_init True --obs_config none --seed 12345`
+```
+python main.py --cuda --env Pvtol --rand_init True --cbf_mode baseline --rand_init True --obs_config none --seed 12345
+```
 * Modular SAC-RCBF:
-`python main.py --cuda --env Pvtol --rand_init True --cbf_mode mod --seed 12345`
+```
+python main.py --cuda --env Pvtol --rand_init True --cbf_mode mod --seed 12345
+```
 * SAC-RCBF:
-`python main.py --cuda --env Pvtol --rand_init True --cbf_mode full --seed 12345`
+```
+python main.py --cuda --env Pvtol --rand_init True --cbf_mode full --seed 12345
+```
 * Baseline:
-`python main.py --cuda --env Pvtol --rand_init True --cbf_mode baseline --seed 12345`
+```
+python main.py --cuda --env Pvtol --rand_init True --cbf_mode baseline --seed 12345
+```
 
 * Test zero-shot transfer: 
-`python main.py --mode test --validate_episodes 200 --resume [run #] --cbf_mode baseline --env Pvtol --obs_config random --seed 12345`
+```
+python main.py --mode test --validate_episodes 200 --resume [run #] --cbf_mode baseline --env Pvtol --obs_config random --seed 12345
+```
